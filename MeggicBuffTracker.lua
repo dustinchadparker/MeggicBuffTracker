@@ -581,7 +581,7 @@ SlashCmdList["MEGGICBUFFTRACKER"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("|cffccccccField explanations:|r")
         DEFAULT_CHAT_FRAME:AddMessage("Buff / Spell / Item - display name AND action name")
         DEFAULT_CHAT_FRAME:AddMessage("Action Type - Spell, Item, or Weapon")
-        DEFAULT_CHAT_FRAME:AddMessage("Duration - buff duration in seconds")
+        DEFAULT_CHAT_FRAME:AddMessage("Duration - buff duration in minutes")
         return
     elseif msg == "config" then
         if configFrame:IsShown() then
