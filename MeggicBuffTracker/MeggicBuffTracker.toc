@@ -1,6 +1,0 @@
-## Interface: 11200
-## Title: MeggicBuffTracker
-## Notes: Tracks important buffs with a movable bar
-## SavedVariables: MeggicBuffTrackerDB
-
-MeggicBuffTracker.lua
