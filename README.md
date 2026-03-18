@@ -9,6 +9,7 @@
 - Click to cast spells or use items directly from the tracker if they're expired or <2min remaining.
 - Shift+Click to remove tracked buffs.
 - Configurable UI with drag-and-drop positioning.
+- Shows item counter on hover for items and spells requiring reagents.
 
 ## Installation
 
