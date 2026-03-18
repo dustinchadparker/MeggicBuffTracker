@@ -1,6 +1,7 @@
 # MeggicBuffTracker
 
 **MeggicBuffTracker** is a lightweight World of Warcraft (TurtleWoW) addon for tracking your buffs, weapon enchants, and consumables in an easy-to-read frame.
+**Please note this requires SuperMacro! https://github.com/qs-crocodyle/SuperMacro-turtle
 
 ## Features
 
