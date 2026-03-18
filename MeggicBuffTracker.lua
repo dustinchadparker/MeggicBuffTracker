@@ -3,6 +3,9 @@ local trackedBuffs = {}
 local buffStartTimes = {}
 local configFrame -- forward declaration so cogBtn can reference it before it's built
 
+-- Detect player class once at load time (English internal name e.g. "MAGE", "PRIEST")
+local _, playerClass = UnitClass("player")
+
 -- Find and use an item from bags
 local function UseItemFromBags(itemName)
     for bag = 0, 4 do
@@ -16,6 +19,21 @@ local function UseItemFromBags(itemName)
     end
     DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r " .. itemName .. " not found in bags.")
     return false
+end
+
+-- Count total stack quantity of a named item across all bags
+local function GetItemCountInBags(itemName)
+    local total = 0
+    for bag = 0, 4 do
+        for slot = 1, GetContainerNumSlots(bag) do
+            local link = GetContainerItemLink(bag, slot)
+            if link and strfind(link, itemName) then
+                local _, count = GetContainerItemInfo(bag, slot)
+                total = total + (count or 1)
+            end
+        end
+    end
+    return total
 end
 
 -- Format time as mm:ss or h:mm:ss
@@ -62,6 +80,40 @@ local buffAliases = {
     ["Gift of the Wild"]              = "Mark of the Wild",
 }
 
+-- Reagents required to cast the group version of a buff.
+-- Keyed by either the single or group buff name — both point to the same reagent
+-- so it shows regardless of which form you added to the tracker.
+-- Reagents required to cast the group version of a buff.
+-- Only shown if the player's class matches.
+local buffReagents = {
+    -- Priest (all group buffs use Sacred Candle)
+    ["Power Word: Fortitude"]       = { item = "Sacred Candle",  class = "PRIEST"  },
+    ["Prayer of Fortitude"]         = { item = "Sacred Candle",  class = "PRIEST"  },
+    ["Divine Spirit"]               = { item = "Sacred Candle",  class = "PRIEST"  },
+    ["Prayer of Spirit"]            = { item = "Sacred Candle",  class = "PRIEST"  },
+    ["Shadow Protection"]           = { item = "Sacred Candle",  class = "PRIEST"  },
+    ["Prayer of Shadow Protection"] = { item = "Sacred Candle",  class = "PRIEST"  },
+    -- Paladin (Greater Blessings all use Symbol of Kings)
+    ["Blessing of Kings"]              = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Greater Blessing of Kings"]      = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Blessing of Wisdom"]             = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Greater Blessing of Wisdom"]     = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Blessing of Might"]              = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Greater Blessing of Might"]      = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Blessing of Salvation"]          = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Greater Blessing of Salvation"]  = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Blessing of Sanctuary"]          = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Greater Blessing of Sanctuary"]  = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Blessing of Light"]              = { item = "Symbol of Kings", class = "PALADIN" },
+    ["Greater Blessing of Light"]      = { item = "Symbol of Kings", class = "PALADIN" },
+    -- Mage
+    ["Arcane Intellect"]  = { item = "Arcane Powder", class = "MAGE" },
+    ["Arcane Brilliance"] = { item = "Arcane Powder", class = "MAGE" },
+    -- Druid
+    ["Mark of the Wild"] = { item = "Wild Berries", class = "DRUID" },
+    ["Gift of the Wild"]  = { item = "Wild Berries", class = "DRUID" },
+}
+
 -- Buff detection: weapon enchants use GetWeaponEnchantInfo(),
 -- everything else uses SuperMacro's global buffed() function.
 -- Also checks the single<->group alias so either form satisfies the tracker.
@@ -91,33 +143,6 @@ end
 -----------------------------
 local buffTemplates = {
     {
-        label = "Caster DPS",
-        buffs = {
-            { name = "Arcane Intellect",               duration = 30*60,  actionType = "spell", action = "Arcane Intellect" },
-            { name = "Mage Armor",                     duration = 30*60,  actionType = "spell", action = "Mage Armor" },
-            { name = "Dampen Magic",                   duration = 10*60,  actionType = "spell", action = "Dampen Magic" },
-            { name = "Danonzo's Tel'Abim Medley",      duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Medley" },
-            { name = "Danonzo's Tel'Abim Delight",     duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
-            { name = "Flask of Supreme Power",         duration = 120*60, actionType = "item",  action = "Flask of Supreme Power" },
-            { name = "Spirit of Zanza",                duration = 120*60, actionType = "item",  action = "Spirit of Zanza" },
-            { name = "Greater Arcane Elixir",          duration = 60*60,  actionType = "item",  action = "Greater Arcane Elixir" },
-            { name = "Mageblood Potion",               duration = 60*60,  actionType = "item",  action = "Mageblood Potion" },
-            { name = "Dreamshard Elixir",              duration = 60*60,  actionType = "item",  action = "Dreamshard Elixir" },
-            { name = "Dreamtonic",                     duration = 60*60,  actionType = "item",  action = "Dreamtonic" },
-            { name = "Cerebral Cortex Compound",       duration = 60*60,  actionType = "item",  action = "Cerebral Cortex Compound" },
-            { name = "Elixir of Greater Arcane Power", duration = 60*60,  actionType = "item",  action = "Elixir of Greater Arcane Power" },
-            { name = "Brilliant Wizard Oil",           duration = 30*60,  actionType = "weapon",action = "Brilliant Wizard Oil" },
-            { name = "Arcane Brilliance",              duration = 120*60, actionType = "spell", action = "Arcane Brilliance" },
-            { name = "Prayer of Fortitude",            duration = 120*60, actionType = "spell", action = "Prayer of Fortitude" },
-            { name = "Prayer of Spirit",               duration = 120*60, actionType = "spell", action = "Prayer of Spirit" },
-            { name = "Gift of the Wild",               duration = 60*60,  actionType = "spell", action = "Gift of the Wild" },
-            { name = "Greater Blessing of Wisdom",     duration = 30*60,  actionType = "spell", action = "Greater Blessing of Wisdom" },
-            { name = "Greater Blessing of Kings",      duration = 30*60,  actionType = "spell", action = "Greater Blessing of Kings" },
-            { name = "Greater Blessing of Salvation",  duration = 30*60,  actionType = "spell", action = "Greater Blessing of Salvation" },
-            { name = "Prayer of Shadow Protection",    duration = 120*60, actionType = "spell", action = "Prayer of Shadow Protection" },
-        },
-    },
-    {
         label = "Tank",
         buffs = {
             { name = "Flask of the Titans",            duration = 120*60, actionType = "item",  action = "Flask of the Titans" },
@@ -141,6 +166,55 @@ local buffTemplates = {
             { name = "Greater Blessing of Wisdom",     duration = 30*60,  actionType = "spell", action = "Greater Blessing of Wisdom" },
             { name = "Greater Blessing of Might",      duration = 30*60,  actionType = "spell", action = "Greater Blessing of Might" },
             { name = "Greater Blessing of Kings",      duration = 30*60,  actionType = "spell", action = "Greater Blessing of Kings" },
+            { name = "Prayer of Shadow Protection",    duration = 120*60, actionType = "spell", action = "Prayer of Shadow Protection" },
+        },
+    },
+    {
+        label = "Healer",
+        buffs = {
+            { name = "Flask of Distilled Wisdom",      duration = 120*60, actionType = "item",  action = "Flask of Distilled Wisdom" },
+            { name = "Nightfin Soup",                  duration = 10*60,  actionType = "item",  action = "Nightfin Soup" },
+            { name = "Sagefish Delight",               duration = 15*60,  actionType = "item",  action = "Sagefish Delight" },
+            { name = "Danonzo's Tel'Abim Delight",     duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
+            { name = "Cerebral Cortex Compound",       duration = 60*60,  actionType = "item",  action = "Cerebral Cortex Compound" },
+            { name = "Mageblood Potion",               duration = 60*60,  actionType = "item",  action = "Mageblood Potion" },
+            { name = "Dreamshard Elixir",              duration = 60*60,  actionType = "item",  action = "Dreamshard Elixir" },
+            { name = "Spirit of Zanza",                duration = 120*60, actionType = "item",  action = "Spirit of Zanza" },
+            { name = "Brilliant Mana Oil",             duration = 30*60,  actionType = "weapon",action = "Brilliant Mana Oil" },
+            { name = "Arcane Brilliance",              duration = 120*60, actionType = "spell", action = "Arcane Brilliance" },
+            { name = "Prayer of Fortitude",            duration = 120*60, actionType = "spell", action = "Prayer of Fortitude" },
+            { name = "Prayer of Spirit",               duration = 120*60, actionType = "spell", action = "Prayer of Spirit" },
+            { name = "Gift of the Wild",               duration = 60*60,  actionType = "spell", action = "Gift of the Wild" },
+            { name = "Greater Blessing of Wisdom",     duration = 30*60,  actionType = "spell", action = "Greater Blessing of Wisdom" },
+            { name = "Greater Blessing of Kings",      duration = 30*60,  actionType = "spell", action = "Greater Blessing of Kings" },
+            { name = "Greater Blessing of Salvation",  duration = 30*60,  actionType = "spell", action = "Greater Blessing of Salvation" },
+            { name = "Prayer of Shadow Protection",    duration = 120*60, actionType = "spell", action = "Prayer of Shadow Protection" },
+        },
+    },
+    {
+        label = "Caster DPS",
+        buffs = {
+            { name = "Arcane Intellect",               duration = 30*60,  actionType = "spell", action = "Arcane Intellect" },
+            { name = "Mage Armor",                     duration = 30*60,  actionType = "spell", action = "Mage Armor" },
+            { name = "Dampen Magic",                   duration = 10*60,  actionType = "spell", action = "Dampen Magic" },
+            { name = "Danonzo's Tel'Abim Medley",      duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Medley" },
+            { name = "Danonzo's Tel'Abim Delight",     duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
+            { name = "Flask of Supreme Power",         duration = 120*60, actionType = "item",  action = "Flask of Supreme Power" },
+            { name = "Spirit of Zanza",                duration = 120*60, actionType = "item",  action = "Spirit of Zanza" },
+            { name = "Greater Arcane Elixir",          duration = 60*60,  actionType = "item",  action = "Greater Arcane Elixir" },
+            { name = "Mageblood Potion",               duration = 60*60,  actionType = "item",  action = "Mageblood Potion" },
+            { name = "Dreamshard Elixir",              duration = 60*60,  actionType = "item",  action = "Dreamshard Elixir" },
+            { name = "Dreamtonic",                     duration = 60*60,  actionType = "item",  action = "Dreamtonic" },
+            { name = "Cerebral Cortex Compound",       duration = 60*60,  actionType = "item",  action = "Cerebral Cortex Compound" },
+            { name = "Elixir of Greater Arcane Power", duration = 60*60,  actionType = "item",  action = "Elixir of Greater Arcane Power" },
+            { name = "Brilliant Wizard Oil",           duration = 30*60,  actionType = "weapon",action = "Brilliant Wizard Oil" },
+            { name = "Arcane Brilliance",              duration = 120*60, actionType = "spell", action = "Arcane Brilliance" },
+            { name = "Prayer of Fortitude",            duration = 120*60, actionType = "spell", action = "Prayer of Fortitude" },
+            { name = "Prayer of Spirit",               duration = 120*60, actionType = "spell", action = "Prayer of Spirit" },
+            { name = "Gift of the Wild",               duration = 60*60,  actionType = "spell", action = "Gift of the Wild" },
+            { name = "Greater Blessing of Wisdom",     duration = 30*60,  actionType = "spell", action = "Greater Blessing of Wisdom" },
+            { name = "Greater Blessing of Kings",      duration = 30*60,  actionType = "spell", action = "Greater Blessing of Kings" },
+            { name = "Greater Blessing of Salvation",  duration = 30*60,  actionType = "spell", action = "Greater Blessing of Salvation" },
             { name = "Prayer of Shadow Protection",    duration = 120*60, actionType = "spell", action = "Prayer of Shadow Protection" },
         },
     },
@@ -170,35 +244,13 @@ local buffTemplates = {
             { name = "Prayer of Shadow Protection",    duration = 120*60, actionType = "spell", action = "Prayer of Shadow Protection" },
         },
     },
-    {
-        label = "Healer",
-        buffs = {
-            { name = "Flask of Distilled Wisdom",      duration = 120*60, actionType = "item",  action = "Flask of Distilled Wisdom" },
-            { name = "Nightfin Soup",                  duration = 10*60,  actionType = "item",  action = "Nightfin Soup" },
-            { name = "Sagefish Delight",               duration = 15*60,  actionType = "item",  action = "Sagefish Delight" },
-            { name = "Danonzo's Tel'Abim Delight",     duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
-            { name = "Cerebral Cortex Compound",       duration = 60*60,  actionType = "item",  action = "Cerebral Cortex Compound" },
-            { name = "Mageblood Potion",               duration = 60*60,  actionType = "item",  action = "Mageblood Potion" },
-            { name = "Dreamshard Elixir",              duration = 60*60,  actionType = "item",  action = "Dreamshard Elixir" },
-            { name = "Spirit of Zanza",                duration = 120*60, actionType = "item",  action = "Spirit of Zanza" },
-            { name = "Brilliant Mana Oil",             duration = 30*60,  actionType = "weapon",action = "Brilliant Mana Oil" },
-            { name = "Arcane Brilliance",              duration = 120*60, actionType = "spell", action = "Arcane Brilliance" },
-            { name = "Prayer of Fortitude",            duration = 120*60, actionType = "spell", action = "Prayer of Fortitude" },
-            { name = "Prayer of Spirit",               duration = 120*60, actionType = "spell", action = "Prayer of Spirit" },
-            { name = "Gift of the Wild",               duration = 60*60,  actionType = "spell", action = "Gift of the Wild" },
-            { name = "Greater Blessing of Wisdom",     duration = 30*60,  actionType = "spell", action = "Greater Blessing of Wisdom" },
-            { name = "Greater Blessing of Kings",      duration = 30*60,  actionType = "spell", action = "Greater Blessing of Kings" },
-            { name = "Greater Blessing of Salvation",  duration = 30*60,  actionType = "spell", action = "Greater Blessing of Salvation" },
-            { name = "Prayer of Shadow Protection",    duration = 120*60, actionType = "spell", action = "Prayer of Shadow Protection" },
-        },
-    },
 }
 
 -----------------------------
 -- MAIN TRACKER FRAME
 -----------------------------
 local frame = CreateFrame("Frame", "MeggicBuffTrackerFrame", UIParent)
-frame:SetWidth(240)
+frame:SetWidth(250)
 frame:SetHeight(50)
 frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 frame:SetBackdrop({
@@ -256,20 +308,18 @@ local rows = {}
 
 -- Drag state
 local dragIndex = nil
-local dragRow = nil  -- the visual ghost row that follows the cursor
 
 local function GetRowAtCursor()
-    -- Returns which slot index the cursor is hovering over
     local numBuffs = table.getn(trackedBuffs)
     for i = 1, numBuffs do
         local r = rows[i]
         if r and r:IsShown() then
-            local left = r:GetLeft()
-            local right = r:GetRight()
-            local top = r:GetTop()
+            local left   = r:GetLeft()
+            local right  = r:GetRight()
+            local top    = r:GetTop()
             local bottom = r:GetBottom()
             local cx, cy = GetCursorPosition()
-            local scale = r:GetEffectiveScale()
+            local scale  = r:GetEffectiveScale()
             cx = cx / scale
             cy = cy / scale
             if cx >= left and cx <= right and cy >= bottom and cy <= top then
@@ -291,7 +341,7 @@ local function RefreshTrackerRows()
         local row = rows[i]
         if not row then
             row = CreateFrame("Button", "MeggicBuffTrackerRow" .. i, frame)
-            row:SetWidth(230)
+            row:SetWidth(240)
             row:SetHeight(16)
             row.glow = row:CreateTexture(nil, "BACKGROUND")
             row.glow:SetAllPoints(row)
@@ -301,21 +351,25 @@ local function RefreshTrackerRows()
             row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
             row.highlight:SetAllPoints(row)
             row.highlight:SetTexture(1, 1, 1, 0.15)
-            -- Drag handle label on the left
+            -- Drag handle
             row.handle = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             row.handle:SetPoint("LEFT", row, "LEFT", 0, 0)
             row.handle:SetText("|cff555555:::|r")
+            -- Buff name — fills the left side
             row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            row.label:SetPoint("LEFT", row, "LEFT", 18, 0)
-            row.label:SetWidth(150)
+            row.label:SetPoint("LEFT",  row, "LEFT",  18, 0)
+            row.label:SetPoint("RIGHT", row, "RIGHT", -50, 0)
             row.label:SetJustifyH("LEFT")
+            row.label:SetNonSpaceWrap(false)
+            -- Timer / status — far right
             row.status = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            row.status:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+            row.status:SetPoint("LEFT",  row, "RIGHT", -48, 0)
+            row.status:SetPoint("RIGHT", row, "RIGHT",   0, 0)
+            row.status:SetJustifyH("RIGHT")
 
             row:RegisterForDrag("LeftButton")
             row:SetScript("OnDragStart", function()
                 dragIndex = this.buffIndex
-                -- Dim the dragged row
                 this.label:SetTextColor(0.5, 0.5, 0.5)
                 this.status:SetTextColor(0.5, 0.5, 0.5)
             end)
@@ -323,7 +377,6 @@ local function RefreshTrackerRows()
                 if dragIndex then
                     local targetIndex = GetRowAtCursor()
                     if targetIndex and targetIndex ~= dragIndex then
-                        -- Swap the two entries
                         local tmp = trackedBuffs[dragIndex]
                         trackedBuffs[dragIndex] = trackedBuffs[targetIndex]
                         trackedBuffs[targetIndex] = tmp
@@ -360,8 +413,25 @@ local function RefreshTrackerRows()
             end)
 
             row:SetScript("OnEnter", function()
+                local b = this.buff
                 GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-                GameTooltip:SetText(this.buff and this.buff.name or "", 1, 1, 1)
+                GameTooltip:SetText(b and b.name or "", 1, 1, 1)
+                if b then
+                    -- Item count for consumables and weapon enchant items
+                    if (b.actionType == "item" or (b.actionType == "weapon" and b.action ~= "")) then
+                        local qty = GetItemCountInBags(b.action)
+                        local qtyColor = qty > 0 and "|cffffffff" or "|cffff4444"
+                        GameTooltip:AddLine("In bags: " .. qtyColor .. qty .. "|r", 0.9, 0.9, 0.9)
+                    end
+                    -- Reagent count for spells, only for this player's class
+                    local reagentEntry = buffReagents[b.name]
+                    if reagentEntry and reagentEntry.class == playerClass then
+                        local rqty = GetItemCountInBags(reagentEntry.item)
+                        local rColor = rqty > 0 and "|cffffffff" or "|cffff4444"
+                        GameTooltip:AddLine(reagentEntry.item .. ": " .. rColor .. rqty .. "|r", 0.4, 0.7, 1)
+                    end
+                end
+                GameTooltip:AddLine(" ")
                 GameTooltip:AddLine("Left-click to cast/use", 0.7, 0.7, 0.7)
                 GameTooltip:AddLine("Shift-click to remove", 0.7, 0.7, 0.7)
                 GameTooltip:AddLine("Drag to reorder", 0.7, 0.7, 0.7)
@@ -580,7 +650,6 @@ addBtn:SetScript("OnClick", function()
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r Please enter a buff/spell/item name.")
         return
     end
-    -- Duplicate check (also catches alias matches)
     local exists, existingName = IsAlreadyTracked(name)
     if exists then
         if existingName == name then
