@@ -26,23 +26,32 @@
 | `/mbt clear` | Remove all tracked buffs |
 | `/mbt help` | Show usage instructions in chat |
 
-## How to Add Buffs
+## How to Add Custom Buffs
 
 1. Type `/mbt config` (or click the "(C)" in the top-right of the mbt window to open the configuration window.
 2. Click **Refresh Buffs** to populate your current buffs.
 3. Click a buff icon to select it. The **Buff / Spell / Item** field auto-fills.
 4. Edit the name if needed (must exactly match).  
-5. Choose the **Action Type**: Spell, Item, or Weapon.
+5. Choose the **Action Type**: Spell or Item.
 6. Set the **Duration** in minutes (decimals is fine).  
-7. Click **Add Buff** to track it.
+7. Click **Add Custom Buff** to track it.
+
+## How to Add Template-d Buffs
+
+1. Type `/mbt config` (or click the "(C)" in the top-right of the mbt window to open the configuration window.
+2. Select your desired spec from the drop-down menu.
+3. Click "Add"
+4. All relevant buffs will populate in the tracker.
+5. Remove the ones you don't want to track.
 
 **Weapon Enchants:**  
-Click the “Select Current Weapon Enchant” button and set the type/action/duration accordingly.
+Click the “Select Current Weapon Enchant” button once your weapon has the desired enchant.
 
 ## Using the Tracker
 
 - Click a buff row to cast/use it (if action defined).  
-- Shift+Click a buff row to remove it.  
+- Shift+Click a buff row to remove it.
+- Drag and drop to re-order the rows.
 - Missing buffs are highlighted with a red glow.  
 - Remaining time is color-coded:
   - Green: healthy
