@@ -1,4 +1,4 @@
-MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false }
+MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false }
 local trackedBuffs = {}
 local configFrame
 
@@ -125,16 +125,11 @@ end
 
 -----------------------------
 -- ACCURATE TIMER
--- Strategy: build two separate tables, then join on icon path.
---   iconToTime : icon(lower) -> timeLeft   (from GetPlayerBuff 0-based loop)
---   nameToIcon : buffName(lower) -> icon(lower)  (from UnitBuff tooltip 1-based loop)
--- Joining on icon avoids any assumption about slot order alignment.
 -----------------------------
 local scanTip = CreateFrame("GameTooltip", "MeggicScanTooltip", UIParent, "GameTooltipTemplate")
 scanTip:SetOwner(UIParent, "ANCHOR_NONE")
 
 local function BuildBuffTimeMap()
-    -- Step 1: icon -> timeLeft from GetPlayerBuff (0-based)
     local iconToTime = {}
     for i = 0, 31 do
         local buffId = GetPlayerBuff(i, "HELPFUL|HARMFUL|PASSIVE")
@@ -146,15 +141,10 @@ local function BuildBuffTimeMap()
             end
         end
     end
-
-    -- Step 2: name -> icon from UnitBuff (1-based) via tooltip line 1
-    -- UnitBuff returns the icon directly, and tooltip gives us the name.
-    -- We read both from the same slot so they're guaranteed to match.
     local map = {}
     for i = 1, 40 do
         local icon = UnitBuff("player", i)
         if not icon then break end
-        -- Get the name via tooltip for this slot
         scanTip:ClearLines()
         scanTip:SetUnitBuff("player", i)
         local line1 = getglobal("MeggicScanTooltipTextLeft1")
@@ -371,14 +361,12 @@ frame:SetScript("OnDragStop", function()
     MeggicBuffTrackerDB.width = this:GetWidth()
 end)
 
--- Title
 local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 title:SetPoint("TOPLEFT",  frame, "TOPLEFT",   8, -6)
 title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -76, -6)
 title:SetJustifyH("LEFT")
 title:SetText("Meggic Buff Tracker")
 
--- [X] close button — rightmost
 local closeTrackerBtn = CreateFrame("Button", "MeggicBuffTrackerCloseBtn", frame)
 closeTrackerBtn:SetWidth(20)
 closeTrackerBtn:SetHeight(14)
@@ -403,7 +391,6 @@ closeTrackerBtn:SetScript("OnLeave", function()
     GameTooltip:Hide()
 end)
 
--- [C] config button — just left of [X]
 local cogBtn = CreateFrame("Button", "MeggicBuffTrackerCogBtn", frame)
 cogBtn:SetWidth(20)
 cogBtn:SetHeight(14)
@@ -430,7 +417,6 @@ cogBtn:SetScript("OnLeave", function()
     GameTooltip:Hide()
 end)
 
--- [-]/[+] collapse button — just left of [C]
 local isCollapsed   = false
 local COLLAPSE_ROWS = 10
 
@@ -447,7 +433,6 @@ collapseLabel:SetJustifyH("CENTER")
 collapseLabel:SetJustifyV("MIDDLE")
 collapseLabel:SetText("|cffaaaaaa[-]|r")
 
--- Right-edge resize grip
 local resizeGrip = CreateFrame("Frame", nil, frame)
 resizeGrip:SetWidth(6)
 resizeGrip:SetPoint("TOPRIGHT",    frame, "TOPRIGHT",    0, 0)
@@ -654,7 +639,7 @@ collapseBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 -----------------------------
 configFrame = CreateFrame("Frame", "MeggicBuffTrackerConfig", UIParent)
 configFrame:SetWidth(330)
-configFrame:SetHeight(235)
+configFrame:SetHeight(255)  -- slightly taller to fit second option row
 configFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 configFrame:SetBackdrop({
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -923,34 +908,34 @@ raidOnlySep:SetPoint("TOP", configFrame, "TOP", 0, -165)
 raidOnlySep:SetText("--- Options ---")
 raidOnlySep:SetTextColor(0.5, 0.5, 0.5)
 
-local raidOnlyBtn = CreateFrame("Button", "MeggicRaidOnlyBtn", configFrame)
-raidOnlyBtn:SetWidth(14); raidOnlyBtn:SetHeight(14)
-raidOnlyBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -185)
-raidOnlyBtn.bg = raidOnlyBtn:CreateTexture(nil, "BACKGROUND")
-raidOnlyBtn.bg:SetAllPoints(raidOnlyBtn)
-raidOnlyBtn.bg:SetTexture(0.15, 0.15, 0.15, 1)
-local function AddBorder(parent, r, g, b)
-    local t = parent:CreateTexture(nil, "BORDER")
-    t:SetPoint("TOPLEFT",     parent, "TOPLEFT",     0,  0)
-    t:SetPoint("BOTTOMRIGHT", parent, "TOPRIGHT",    0, -1)
-    t:SetTexture(r, g, b, 1)
-    local bo = parent:CreateTexture(nil, "BORDER")
-    bo:SetPoint("TOPLEFT",     parent, "BOTTOMLEFT",  0,  1)
-    bo:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0,  0)
-    bo:SetTexture(r, g, b, 1)
-    local le = parent:CreateTexture(nil, "BORDER")
-    le:SetPoint("TOPLEFT",     parent, "TOPLEFT",    0, 0)
-    le:SetPoint("BOTTOMRIGHT", parent, "BOTTOMLEFT", 1, 0)
-    le:SetTexture(r, g, b, 1)
-    local ri = parent:CreateTexture(nil, "BORDER")
-    ri:SetPoint("TOPLEFT",     parent, "TOPRIGHT",    -1, 0)
-    ri:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT",  0, 0)
-    ri:SetTexture(r, g, b, 1)
+-- Shared helper to build the little bordered checkbox look
+local function MakeCheckbox(parent, yOffset)
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetWidth(14); btn:SetHeight(14)
+    btn:SetPoint("TOPLEFT", parent, "TOPLEFT", 15, yOffset)
+    btn.bg = btn:CreateTexture(nil, "BACKGROUND")
+    btn.bg:SetAllPoints(btn)
+    btn.bg:SetTexture(0.15, 0.15, 0.15, 1)
+    -- thin red border
+    local function Edge(a1, p1, a2, p2, w, h)
+        local t = btn:CreateTexture(nil, "BORDER")
+        t:SetPoint(a1, btn, p1, 0, 0)
+        t:SetPoint(a2, btn, p2, w, h)
+        t:SetTexture(0.8, 0.1, 0.1, 1)
+    end
+    Edge("TOPLEFT","TOPLEFT","BOTTOMRIGHT","TOPRIGHT",   0, -1)  -- top
+    Edge("TOPLEFT","BOTTOMLEFT","BOTTOMRIGHT","BOTTOMRIGHT", 0, 1) -- bottom
+    Edge("TOPLEFT","TOPLEFT","BOTTOMRIGHT","BOTTOMLEFT", 1,  0)  -- left
+    Edge("TOPLEFT","TOPRIGHT","BOTTOMRIGHT","BOTTOMRIGHT",-1, 0) -- right
+    btn.check = btn:CreateTexture(nil, "OVERLAY")
+    btn.check:SetAllPoints(btn)
+    btn.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    btn.check:SetAlpha(0)
+    return btn
 end
-AddBorder(raidOnlyBtn, 0.8, 0.1, 0.1)
-raidOnlyBtn.check = raidOnlyBtn:CreateTexture(nil, "OVERLAY")
-raidOnlyBtn.check:SetAllPoints(raidOnlyBtn)
-raidOnlyBtn.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+
+-- Option 1: Show only in raid
+local raidOnlyBtn = MakeCheckbox(configFrame, -185)
 raidOnlyBtn.check:SetAlpha(MeggicBuffTrackerDB.showInRaidOnly and 1 or 0)
 
 local raidOnlyLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -968,6 +953,33 @@ raidOnlyBtn:SetScript("OnClick", function()
     end
 end)
 
+-- Option 2: Solid red bar instead of blinking
+local solidBarBtn = MakeCheckbox(configFrame, -205)
+solidBarBtn.check:SetAlpha(MeggicBuffTrackerDB.solidMissingBar and 1 or 0)
+
+local solidBarLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+solidBarLabel:SetPoint("LEFT", solidBarBtn, "RIGHT", 6, 0)
+solidBarLabel:SetText("Solid red bar for missing buffs (no blink)")
+solidBarLabel:SetTextColor(0.9, 0.9, 0.9)
+
+solidBarBtn:SetScript("OnClick", function()
+    MeggicBuffTrackerDB.solidMissingBar = not MeggicBuffTrackerDB.solidMissingBar
+    this.check:SetAlpha(MeggicBuffTrackerDB.solidMissingBar and 1 or 0)
+    -- Immediately apply to any currently-missing rows
+    for i = 1, table.getn(rows) do
+        local row = rows[i]
+        if row and row:IsShown() and row.missing then
+            if MeggicBuffTrackerDB.solidMissingBar then
+                row.glow:SetTexture(1, 0, 0, 0.35)
+                row.glowAlpha = 0.35
+            else
+                row.glowAlpha = 0
+                row.glow:SetTexture(1, 0, 0, 0)
+            end
+        end
+    end
+end)
+
 local helpText = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 helpText:SetPoint("BOTTOM", configFrame, "BOTTOM", 0, 15)
 helpText:SetText("Shift+Click a row to remove  |  Drag to reorder")
@@ -975,6 +987,7 @@ helpText:SetTextColor(0.7, 0.7, 0.7)
 
 configFrame:SetScript("OnShow", function()
     raidOnlyBtn.check:SetAlpha(MeggicBuffTrackerDB.showInRaidOnly and 1 or 0)
+    solidBarBtn.check:SetAlpha(MeggicBuffTrackerDB.solidMissingBar and 1 or 0)
 end)
 configFrame:SetScript("OnHide", function()
     dropList:Hide()
@@ -1002,11 +1015,7 @@ frame:SetScript("OnUpdate", function()
                         remaining = (hasEnchant and enchantExpiry) and (enchantExpiry / 1000) or buff.duration
                     else
                         local t = GetBuffTimeLeft(buffMap, buff.name)
-                        if t == nil then
-                            -- Not found in map — show permanent indicator
-                            remaining = nil
-                        elseif t == 0 then
-                            -- Server returns 0 for permanent buffs
+                        if t == nil or t == 0 then
                             remaining = nil
                         else
                             remaining = t
@@ -1037,18 +1046,34 @@ frame:SetScript("OnUpdate", function()
                     row.status:SetTextColor(1, 0, 0)
                     row.label:SetTextColor(1, 0.3, 0.3)
                     row.missing = true
+                    -- Set initial glow state based on current mode
+                    if MeggicBuffTrackerDB.solidMissingBar then
+                        row.glow:SetTexture(1, 0, 0, 0.35)
+                        row.glowAlpha = 0.35
+                    end
                 end
             end
         end
     end
-    -- Glow animation
+    -- Glow / solid bar animation for missing buffs
     for i = 1, table.getn(rows) do
         local row = rows[i]
         if row:IsShown() and row.missing then
-            row.glowAlpha = row.glowAlpha + (row.glowDir * arg1 * 2)
-            if row.glowAlpha >= 0.4 then row.glowDir = -1; row.glowAlpha = 0.4
-            elseif row.glowAlpha <= 0 then row.glowDir = 1; row.glowAlpha = 0 end
-            row.glow:SetTexture(1, 0, 0, row.glowAlpha)
+            if MeggicBuffTrackerDB.solidMissingBar then
+                -- Solid mode: keep at fixed alpha, no animation needed
+                row.glow:SetTexture(1, 0, 0, 0.35)
+            else
+                -- Blink mode: animate alpha
+                row.glowAlpha = row.glowAlpha + (row.glowDir * arg1 * 2)
+                if row.glowAlpha >= 0.4 then
+                    row.glowDir  = -1
+                    row.glowAlpha = 0.4
+                elseif row.glowAlpha <= 0 then
+                    row.glowDir  = 1
+                    row.glowAlpha = 0
+                end
+                row.glow:SetTexture(1, 0, 0, row.glowAlpha)
+            end
         end
     end
 end)
@@ -1064,20 +1089,11 @@ eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 
 local wasInRaid = false
 
-local function HandleVisibility()
-    if not MeggicBuffTrackerDB.showInRaidOnly then
-        frame:Show()
-        return
-    end
-    local inRaid = UnitInRaid("player") ~= nil
-    if inRaid then frame:Show() else frame:Hide() end
-    wasInRaid = inRaid
-end
-
 eventFrame:SetScript("OnEvent", function()
     if event == "VARIABLES_LOADED" then
-        MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false }
+        MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false }
         if MeggicBuffTrackerDB.showInRaidOnly == nil then MeggicBuffTrackerDB.showInRaidOnly = false end
+        if MeggicBuffTrackerDB.solidMissingBar == nil then MeggicBuffTrackerDB.solidMissingBar = false end
         if MeggicBuffTrackerDB.width          == nil then MeggicBuffTrackerDB.width = 250 end
         trackedBuffs = MeggicBuffTrackerDB.buffs or {}
         MeggicBuffTrackerDB.buffs = trackedBuffs
@@ -1088,10 +1104,10 @@ eventFrame:SetScript("OnEvent", function()
         frame:SetWidth(MeggicBuffTrackerDB.width)
         RefreshTrackerRows()
         wasInRaid = UnitInRaid("player") ~= nil
-        if MeggicBuffTrackerDB.showInRaidOnly and UnitInRaid("player") then
-            frame:Show()
-        else
+        if MeggicBuffTrackerDB.showInRaidOnly and not UnitInRaid("player") then
             frame:Hide()
+        else
+            frame:Show()
         end
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker|r loaded " .. table.getn(trackedBuffs) .. " saved buffs.")
 
