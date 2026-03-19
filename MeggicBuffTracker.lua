@@ -124,44 +124,28 @@ local function IsAlreadyTracked(name)
 end
 
 -----------------------------
--- ACCURATE TIMER via GetPlayerBuff / GetPlayerBuffTimeLeft
---
--- Build a snapshot table of  buffName (lowercase) -> remaining seconds
--- once per update tick, then look up each tracked buff in it.
--- This is exactly the same API as the working /run snippet:
---   GetPlayerBuff(i, "HELPFUL|HARMFUL|PASSIVE") -> buffId  (-1 = empty slot)
---   GetPlayerBuffTimeLeft(buffId)               -> seconds remaining
---
--- We identify the buff name by scanning tooltip line 1 of the matching
--- UnitBuff slot (GetPlayerBuff and UnitBuff share the same 0-based / 1-based
--- slot order respectively).
+-- ACCURATE TIMER
 -----------------------------
 local scanTip = CreateFrame("GameTooltip", "MeggicScanTooltip", UIParent, "GameTooltipTemplate")
 scanTip:SetOwner(UIParent, "ANCHOR_NONE")
 
--- Returns a table mapping  strlower(buffName) -> timeLeftSeconds
--- for every buff currently on the player.
 local function BuildBuffTimeMap()
     local map = {}
     for i = 0, 31 do
         local buffId = GetPlayerBuff(i, "HELPFUL|HARMFUL|PASSIVE")
         if buffId and buffId > -1 then
-            -- Identify the name via tooltip line 1 (reliable on all servers)
             scanTip:ClearLines()
-            scanTip:SetUnitBuff("player", i + 1)   -- UnitBuff is 1-based
+            scanTip:SetUnitBuff("player", i + 1)
             local line1 = getglobal("MeggicScanTooltipTextLeft1")
             local name  = line1 and line1:GetText() or ""
             if name ~= "" then
-                local timeLeft = GetPlayerBuffTimeLeft(buffId)
-                map[strlower(name)] = timeLeft
+                map[strlower(name)] = GetPlayerBuffTimeLeft(buffId)
             end
         end
     end
     return map
 end
 
--- Look up remaining time for a tracked buff (checks alias too).
--- Returns seconds, or nil if buff is not found in the map.
 local function GetBuffTimeLeft(buffMap, buffName)
     local t = buffMap[strlower(buffName)]
     if t then return t end
@@ -212,10 +196,10 @@ local buffTemplates = {
             { name = "Sagefish Delight",               duration = 15*60,  actionType = "item",  action = "Sagefish Delight" },
             { name = "Danonzo's Tel'Abim Delight",     duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
             { name = "Cerebral Cortex Compound",       duration = 60*60,  actionType = "item",  action = "Cerebral Cortex Compound" },
-            { name = "Medivh's Merlot Blue Label",       duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue Label" },
-            { name = "Emerald Blessing",       duration = 60*60,  actionType = "spell",  action = "Emerald Blessing" },
+            { name = "Medivh's Merlot Blue Label",     duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue Label" },
+            { name = "Emerald Blessing",               duration = 60*60,  actionType = "spell", action = "Emerald Blessing" },
             { name = "Mageblood Potion",               duration = 60*60,  actionType = "item",  action = "Mageblood Potion" },
-            { name = "Elixir of the Sages",               duration = 60*60,  actionType = "item",  action = "Elixir of the Sages" },
+            { name = "Elixir of the Sages",            duration = 60*60,  actionType = "item",  action = "Elixir of the Sages" },
             { name = "Dreamshard Elixir",              duration = 60*60,  actionType = "item",  action = "Dreamshard Elixir" },
             { name = "Spirit of Zanza",                duration = 120*60, actionType = "item",  action = "Spirit of Zanza" },
             { name = "Brilliant Mana Oil",             duration = 30*60,  actionType = "weapon",action = "Brilliant Mana Oil" },
@@ -282,6 +266,58 @@ local buffTemplates = {
             { name = "Prayer of Shadow Protection",    duration = 120*60, actionType = "spell", action = "Prayer of Shadow Protection" },
         },
     },
+    {
+        label = "Add ALL Buffs!",
+        buffs = {
+            { name = "Flask of the Titans",                duration = 120*60, actionType = "item",  action = "Flask of the Titans" },
+            { name = "Greater Stoneshield Potion",         duration = 120*60, actionType = "item",  action = "Greater Stoneshield Potion" },
+            { name = "Spirit of Zanza",                    duration = 120*60, actionType = "item",  action = "Spirit of Zanza" },
+            { name = "Flask of Distilled Wisdom",          duration = 120*60, actionType = "item",  action = "Flask of Distilled Wisdom" },
+            { name = "Flask of Supreme Power",             duration = 120*60, actionType = "item",  action = "Flask of Supreme Power" },
+            { name = "Arcane Brilliance",                  duration = 120*60, actionType = "spell", action = "Arcane Brilliance" },
+            { name = "Prayer of Fortitude",                duration = 120*60, actionType = "spell", action = "Prayer of Fortitude" },
+            { name = "Prayer of Spirit",                   duration = 120*60, actionType = "spell", action = "Prayer of Spirit" },
+            { name = "Prayer of Shadow Protection",        duration = 120*60, actionType = "spell", action = "Prayer of Shadow Protection" },
+            { name = "Elixir of the Mongoose",             duration = 60*60,  actionType = "item",  action = "Elixir of the Mongoose" },
+            { name = "Elixir of Giants",                   duration = 60*60,  actionType = "item",  action = "Elixir of Giants" },
+            { name = "Concoction of the Arcane Giant",     duration = 60*60,  actionType = "item",  action = "Concoction of the Arcane Giant" },
+            { name = "Concoction of the Emerald Mongoose", duration = 60*60,  actionType = "item",  action = "Concoction of the Emerald Mongoose" },
+            { name = "R.O.I.D.S.",                         duration = 60*60,  actionType = "item",  action = "R.O.I.D.S." },
+            { name = "Ground Scorpok Assay",               duration = 60*60,  actionType = "item",  action = "Ground Scorpok Assay" },
+            { name = "Cerebral Cortex Compound",           duration = 60*60,  actionType = "item",  action = "Cerebral Cortex Compound" },
+            { name = "Mageblood Potion",                   duration = 60*60,  actionType = "item",  action = "Mageblood Potion" },
+            { name = "Elixir of the Sages",                duration = 60*60,  actionType = "item",  action = "Elixir of the Sages" },
+            { name = "Dreamshard Elixir",                  duration = 60*60,  actionType = "item",  action = "Dreamshard Elixir" },
+            { name = "Dreamtonic",                         duration = 60*60,  actionType = "item",  action = "Dreamtonic" },
+            { name = "Greater Arcane Elixir",              duration = 60*60,  actionType = "item",  action = "Greater Arcane Elixir" },
+            { name = "Elixir of Greater Arcane Power",     duration = 60*60,  actionType = "item",  action = "Elixir of Greater Arcane Power" },
+            { name = "Gift of the Wild",                   duration = 60*60,  actionType = "spell", action = "Gift of the Wild" },
+            { name = "Emerald Blessing",                   duration = 60*60,  actionType = "spell", action = "Emerald Blessing" },
+            { name = "Juju Power",                         duration = 30*60,  actionType = "item",  action = "Juju Power" },
+            { name = "Juju Might",                         duration = 30*60,  actionType = "item",  action = "Juju Might" },
+            { name = "Winterfall Firewater",               duration = 30*60,  actionType = "item",  action = "Winterfall Firewater" },
+            { name = "Gift of Arthas",                     duration = 30*60,  actionType = "item",  action = "Gift of Arthas" },
+            { name = "Elemental Sharpening Stone",         duration = 30*60,  actionType = "weapon",action = "Elemental Sharpening Stone" },
+            { name = "Brilliant Mana Oil",                 duration = 30*60,  actionType = "weapon",action = "Brilliant Mana Oil" },
+            { name = "Brilliant Wizard Oil",               duration = 30*60,  actionType = "weapon",action = "Brilliant Wizard Oil" },
+            { name = "Greater Blessing of Wisdom",         duration = 30*60,  actionType = "spell", action = "Greater Blessing of Wisdom" },
+            { name = "Greater Blessing of Might",          duration = 30*60,  actionType = "spell", action = "Greater Blessing of Might" },
+            { name = "Greater Blessing of Kings",          duration = 30*60,  actionType = "spell", action = "Greater Blessing of Kings" },
+            { name = "Greater Blessing of Salvation",      duration = 30*60,  actionType = "spell", action = "Greater Blessing of Salvation" },
+            { name = "Arcane Intellect",                   duration = 30*60,  actionType = "spell", action = "Arcane Intellect" },
+            { name = "Mage Armor",                         duration = 30*60,  actionType = "spell", action = "Mage Armor" },
+            { name = "Concoction of the Dreamwater",       duration = 20*60,  actionType = "item",  action = "Concoction of the Dreamwater" },
+            { name = "Hardened Mushroom",                  duration = 15*60,  actionType = "item",  action = "Hardened Mushroom" },
+            { name = "Sagefish Delight",                   duration = 15*60,  actionType = "item",  action = "Sagefish Delight" },
+            { name = "Danonzo's Tel'Abim Delight",         duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
+            { name = "Medivh's Merlot Blue Label",         duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue Label" },
+            { name = "Danonzo's Tel'Abim Medley",          duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Medley" },
+            { name = "Danonzo's Tel'Abim Surprise",        duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Surprise" },
+            { name = "Nightfin Soup",                      duration = 10*60,  actionType = "item",  action = "Nightfin Soup" },
+            { name = "Grilled Squid",                      duration = 10*60,  actionType = "item",  action = "Grilled Squid" },
+            { name = "Dampen Magic",                       duration = 10*60,  actionType = "spell", action = "Dampen Magic" },
+        },
+    },
 }
 
 -----------------------------
@@ -315,7 +351,7 @@ end)
 -- Title
 local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 title:SetPoint("TOPLEFT",  frame, "TOPLEFT",   8, -6)
-title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -52, -6)
+title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -76, -6)
 title:SetJustifyH("LEFT")
 title:SetText("Meggic Buff Tracker")
 
@@ -371,6 +407,23 @@ cogBtn:SetScript("OnLeave", function()
     GameTooltip:Hide()
 end)
 
+-- [-]/[+] collapse button — just left of [C]
+local isCollapsed   = false
+local COLLAPSE_ROWS = 10  -- max rows shown when collapsed
+
+local collapseBtn = CreateFrame("Button", "MeggicBuffTrackerCollapseBtn", frame)
+collapseBtn:SetWidth(20)
+collapseBtn:SetHeight(14)
+collapseBtn:SetPoint("TOPRIGHT", cogBtn, "TOPLEFT", -2, 0)
+local collapseHL = collapseBtn:CreateTexture(nil, "HIGHLIGHT")
+collapseHL:SetAllPoints(collapseBtn)
+collapseHL:SetTexture(1, 1, 1, 0.2)
+local collapseLabel = collapseBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+collapseLabel:SetAllPoints(collapseBtn)
+collapseLabel:SetJustifyH("CENTER")
+collapseLabel:SetJustifyV("MIDDLE")
+collapseLabel:SetText("|cffaaaaaa[-]|r")
+
 -- Right-edge resize grip
 local resizeGrip = CreateFrame("Frame", nil, frame)
 resizeGrip:SetWidth(6)
@@ -420,10 +473,21 @@ local function GetRowAtCursor()
     return nil
 end
 
+-- Compute how many rows should be visible given current collapse state
+local function VisibleRowCount()
+    local total = table.getn(trackedBuffs)
+    if isCollapsed then
+        return math.min(total, COLLAPSE_ROWS)
+    end
+    return total
+end
+
 local function RefreshTrackerRows()
     for i = 1, table.getn(rows) do rows[i]:Hide() end
-    local numBuffs = table.getn(trackedBuffs)
-    frame:SetHeight(numBuffs == 0 and 50 or 30 + (numBuffs * 18))
+    local numBuffs  = table.getn(trackedBuffs)
+    local numVisible = VisibleRowCount()
+    frame:SetHeight(numVisible == 0 and 50 or 30 + (numVisible * 18))
+
     for i = 1, numBuffs do
         local buff = trackedBuffs[i]
         local row  = rows[i]
@@ -517,21 +581,58 @@ local function RefreshTrackerRows()
             row:SetScript("OnLeave", function() GameTooltip:Hide() end)
             rows[i] = row
         end
-        row:SetPoint("TOPLEFT",  frame, "TOPLEFT",  5, -8 - (i * 18))
-        row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -8 - (i * 18))
-        row.label:SetText(buff.name)
-        row.label:SetTextColor(1, 1, 1)
-        row.status:SetText("---")
-        row.status:SetTextColor(1, 1, 1)
-        row.buff      = buff
-        row.buffIndex = i
-        row.missing   = false
-        row.remaining = buff.duration
-        row.glow:SetTexture(1, 0, 0, 0)
-        row.glowAlpha = 0
-        row:Show()
+
+        -- Only show rows within the visible count
+        if i <= numVisible then
+            row:SetPoint("TOPLEFT",  frame, "TOPLEFT",  5, -8 - (i * 18))
+            row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -8 - (i * 18))
+            row.label:SetText(buff.name)
+            row.label:SetTextColor(1, 1, 1)
+            row.status:SetText("---")
+            row.status:SetTextColor(1, 1, 1)
+            row.buff      = buff
+            row.buffIndex = i
+            row.missing   = false
+            row.remaining = buff.duration
+            row.glow:SetTexture(1, 0, 0, 0)
+            row.glowAlpha = 0
+            row:Show()
+        end
+        -- rows beyond numVisible stay hidden (already hidden above)
+    end
+
+    -- Update collapse button label and tooltip
+    local total = table.getn(trackedBuffs)
+    if total <= COLLAPSE_ROWS then
+        -- Not enough rows to need collapsing — grey out the button
+        collapseLabel:SetText("|cff444444[-]|r")
+    elseif isCollapsed then
+        collapseLabel:SetText("|cff00ff00[+]|r")
+    else
+        collapseLabel:SetText("|cffaaaaaa[-]|r")
     end
 end
+
+-- Wire up collapse button now that RefreshTrackerRows is defined
+collapseBtn:SetScript("OnClick", function()
+    local total = table.getn(trackedBuffs)
+    if total <= COLLAPSE_ROWS then return end  -- nothing to collapse
+    isCollapsed = not isCollapsed
+    RefreshTrackerRows()
+end)
+collapseBtn:SetScript("OnEnter", function()
+    local total = table.getn(trackedBuffs)
+    GameTooltip:SetOwner(this, "ANCHOR_BOTTOMLEFT")
+    if total <= COLLAPSE_ROWS then
+        GameTooltip:SetText("Nothing to collapse (≤ " .. COLLAPSE_ROWS .. " rows)", 0.5, 0.5, 0.5)
+    elseif isCollapsed then
+        GameTooltip:SetText("Expand — show all " .. total .. " rows", 1, 1, 1)
+    else
+        GameTooltip:SetText("Collapse to " .. COLLAPSE_ROWS .. " rows", 1, 1, 1)
+    end
+    GameTooltip:Show()
+end)
+collapseBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 -----------------------------
 -- CONFIG WINDOW
@@ -583,7 +684,7 @@ weaponEnchantBtn:SetScript("OnClick", function()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Weapon enchant added to tracker.")
 end)
 
--- "Add Custom Buff" button — opens the popup modal below
+-- "Add Custom Buff" button
 local addCustomBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
 addCustomBtn:SetWidth(160); addCustomBtn:SetHeight(22)
 addCustomBtn:SetPoint("TOP", configFrame, "TOP", 0, -70)
@@ -619,7 +720,6 @@ local popupClose = CreateFrame("Button", nil, customPopup, "UIPanelCloseButton")
 popupClose:SetPoint("TOPRIGHT", customPopup, "TOPRIGHT", -2, -2)
 popupClose:SetScript("OnClick", function() customPopup:Hide() end)
 
--- Name field
 local popupNameLabel = customPopup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 popupNameLabel:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 15, -38)
 popupNameLabel:SetText("Name:")
@@ -634,7 +734,6 @@ popupNameHelp:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 15, -60)
 popupNameHelp:SetText("Must match the spell/item name EXACTLY.")
 popupNameHelp:SetTextColor(0.6, 0.6, 0.6)
 
--- Type selector
 local popupTypeLabel = customPopup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 popupTypeLabel:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 15, -80)
 popupTypeLabel:SetText("Type:")
@@ -669,7 +768,6 @@ end
 popupSpellBtn:SetScript("OnClick", function() PopupSelectType("spell") end)
 popupItemBtn:SetScript("OnClick",  function() PopupSelectType("item")  end)
 
--- Add button
 local popupAddBtn = CreateFrame("Button", nil, customPopup, "UIPanelButtonTemplate")
 popupAddBtn:SetWidth(100); popupAddBtn:SetHeight(24)
 popupAddBtn:SetPoint("BOTTOM", customPopup, "BOTTOM", 0, 12)
@@ -689,8 +787,6 @@ popupAddBtn:SetScript("OnClick", function()
         end
         return
     end
-    -- Duration is not needed — GetPlayerBuffTimeLeft provides it live.
-    -- Store 0 as a sentinel; fallback countdown only activates for weapon enchants.
     table.insert(trackedBuffs, { name = name, duration = 60*60, actionType = popupSelectedType, action = name })
     MeggicBuffTrackerDB.buffs = trackedBuffs
     RefreshTrackerRows()
@@ -700,7 +796,6 @@ popupAddBtn:SetScript("OnClick", function()
     customPopup:Hide()
 end)
 
--- Wire up the config button to open the popup
 addCustomBtn:SetScript("OnClick", function()
     if customPopup:IsShown() then
         customPopup:Hide()
@@ -818,11 +913,9 @@ raidOnlySep:SetTextColor(0.5, 0.5, 0.5)
 local raidOnlyBtn = CreateFrame("Button", "MeggicRaidOnlyBtn", configFrame)
 raidOnlyBtn:SetWidth(14); raidOnlyBtn:SetHeight(14)
 raidOnlyBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -185)
--- Dark background
 raidOnlyBtn.bg = raidOnlyBtn:CreateTexture(nil, "BACKGROUND")
 raidOnlyBtn.bg:SetAllPoints(raidOnlyBtn)
 raidOnlyBtn.bg:SetTexture(0.15, 0.15, 0.15, 1)
--- Red border drawn as four 1px edge textures
 local function AddBorder(parent, r, g, b)
     local t = parent:CreateTexture(nil, "BORDER")
     t:SetPoint("TOPLEFT",     parent, "TOPLEFT",     0,  0)
@@ -833,7 +926,7 @@ local function AddBorder(parent, r, g, b)
     bo:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0,  0)
     bo:SetTexture(r, g, b, 1)
     local le = parent:CreateTexture(nil, "BORDER")
-    le:SetPoint("TOPLEFT",     parent, "TOPLEFT",  0,  0)
+    le:SetPoint("TOPLEFT",     parent, "TOPLEFT",    0, 0)
     le:SetPoint("BOTTOMRIGHT", parent, "BOTTOMLEFT", 1, 0)
     le:SetTexture(r, g, b, 1)
     local ri = parent:CreateTexture(nil, "BORDER")
@@ -842,7 +935,6 @@ local function AddBorder(parent, r, g, b)
     ri:SetTexture(r, g, b, 1)
 end
 AddBorder(raidOnlyBtn, 0.8, 0.1, 0.1)
--- Checkmark overlay
 raidOnlyBtn.check = raidOnlyBtn:CreateTexture(nil, "OVERLAY")
 raidOnlyBtn.check:SetAllPoints(raidOnlyBtn)
 raidOnlyBtn.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
@@ -878,18 +970,13 @@ end)
 
 -----------------------------
 -- UPDATE LOOP
--- Uses GetPlayerBuff / GetPlayerBuffTimeLeft for accurate remaining seconds.
--- Once per tick we build a name->timeLeft map, then update every row from it.
 -----------------------------
 local elapsed = 0
 frame:SetScript("OnUpdate", function()
     elapsed = elapsed + arg1
     if elapsed >= 1 then
         elapsed = 0
-
-        -- Build buffName(lowercase) -> timeLeft map using the working API
         local buffMap = BuildBuffTimeMap()
-
         for i = 1, table.getn(rows) do
             local row = rows[i]
             if row:IsShown() and row.buff then
@@ -928,7 +1015,7 @@ frame:SetScript("OnUpdate", function()
             end
         end
     end
-    -- Glow animation for missing buffs
+    -- Glow animation
     for i = 1, table.getn(rows) do
         local row = rows[i]
         if row:IsShown() and row.missing then
@@ -957,11 +1044,7 @@ local function HandleVisibility()
         return
     end
     local inRaid = UnitInRaid("player") ~= nil
-    if inRaid then
-        frame:Show()
-    else
-        frame:Hide()
-    end
+    if inRaid then frame:Show() else frame:Hide() end
     wasInRaid = inRaid
 end
 
@@ -979,7 +1062,13 @@ eventFrame:SetScript("OnEvent", function()
         frame:SetWidth(MeggicBuffTrackerDB.width)
         RefreshTrackerRows()
         wasInRaid = UnitInRaid("player") ~= nil
-        HandleVisibility()
+        -- Always start hidden — player must type /mbt to show,
+        -- unless showInRaidOnly is checked and they're already in a raid.
+        if MeggicBuffTrackerDB.showInRaidOnly and UnitInRaid("player") then
+            frame:Show()
+        else
+            frame:Hide()
+        end
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker|r loaded " .. table.getn(trackedBuffs) .. " saved buffs.")
 
     elseif event == "PLAYER_LOGOUT" then
@@ -988,15 +1077,18 @@ eventFrame:SetScript("OnEvent", function()
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         wasInRaid = UnitInRaid("player") ~= nil
-        HandleVisibility()
+        -- Don't auto-show on zone transitions unless raid-only is active and we're in a raid
+        if MeggicBuffTrackerDB.showInRaidOnly and UnitInRaid("player") then
+            frame:Show()
+        end
 
     elseif event == "RAID_ROSTER_UPDATE" then
         local inRaid = UnitInRaid("player") ~= nil
         if MeggicBuffTrackerDB.showInRaidOnly then
             if inRaid and not wasInRaid then
-                frame:Show()   -- just joined raid — auto-open
+                frame:Show()
             elseif not inRaid and wasInRaid then
-                frame:Hide()   -- just left raid — auto-close
+                frame:Hide()
             end
         end
         wasInRaid = inRaid
@@ -1020,6 +1112,7 @@ SlashCmdList["MEGGICBUFFTRACKER"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("Resize: drag the right edge of the tracker.")
         DEFAULT_CHAT_FRAME:AddMessage("Buff names must match spell/item names exactly.")
         DEFAULT_CHAT_FRAME:AddMessage("Shift+Click a row to remove it. Drag to reorder.")
+        DEFAULT_CHAT_FRAME:AddMessage("[-]/[+] button collapses/expands the list to " .. COLLAPSE_ROWS .. " rows.")
     elseif msg == "config" then
         if configFrame:IsShown() then configFrame:Hide() else configFrame:Show() end
     elseif msg == "reset" then
@@ -1036,7 +1129,6 @@ SlashCmdList["MEGGICBUFFTRACKER"] = function(msg)
     elseif frame:IsShown() then
         frame:Hide()
     else
-        -- Manual toggle always works, even with showInRaidOnly enabled
         frame:Show()
     end
 end
