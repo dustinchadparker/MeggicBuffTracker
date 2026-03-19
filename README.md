@@ -32,12 +32,11 @@
 ## How to Add Custom Buffs
 
 1. Type `/mbt config` (or click the "(C)" in the top-right of the mbt window to open the configuration window.
-2. Click **Refresh Buffs** to populate your current buffs.
-3. Click a buff icon to select it. The **Buff / Spell / Item** field auto-fills.
-4. Edit the name if needed (must exactly match).  
+2. Click Add Custom Buff to fill out info on pop-up.
+3. Edit the name (must exactly match).  
 5. Choose the **Action Type**: Spell or Item.
 6. Set the **Duration** in minutes (decimals is fine).  
-7. Click **Add Custom Buff** to track it.
+7. Click **Add Buff** to track it.
 
 ## How to Add Template-d Buffs
 
@@ -68,7 +67,6 @@ Click the “Select Current Weapon Enchant” button once your weapon has the de
 - The tracker frame is draggable; position is remembered across sessions.
 
 ## Known Issues
-- The 'remaining time' will be incorrect if relogging and will also refresh if you do /reload. Directly getting the ACTUAL remaining time doesn't seem possible with current API. This is not a huge issue as I just needed it to let me know when the buff expires - how much it has left isn't too big of an issue.
 - If the addon loads and you can't see the mbt window, do "/mbt reset" to put it back to the middle of your screen (it can go off-screen)
 - Weapon enchants likely won't work with off-hand weapons. I haven't tried it as I don't have a rogue/offhand class.
 - If you find any other bugs please let me know!
