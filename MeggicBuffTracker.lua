@@ -1,12 +1,12 @@
-MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0 }
+MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false }
 local trackedBuffs = {}
-local buffStartTimes = {}
-local configFrame -- forward declaration so cogBtn can reference it before it's built
+local configFrame
 
--- Detect player class once at load time (English internal name e.g. "MAGE", "PRIEST")
 local _, playerClass = UnitClass("player")
 
--- Find and use an item from bags
+-----------------------------
+-- UTILITY
+-----------------------------
 local function UseItemFromBags(itemName)
     for bag = 0, 4 do
         for slot = 1, GetContainerNumSlots(bag) do
@@ -21,7 +21,6 @@ local function UseItemFromBags(itemName)
     return false
 end
 
--- Count total stack quantity of a named item across all bags
 local function GetItemCountInBags(itemName)
     local total = 0
     for bag = 0, 4 do
@@ -36,12 +35,11 @@ local function GetItemCountInBags(itemName)
     return total
 end
 
--- Format time as mm:ss or h:mm:ss
 local function FormatTime(seconds)
     if seconds <= 0 then return "0:00" end
     local hours = floor(seconds / 3600)
-    local mins = floor(mod(seconds, 3600) / 60)
-    local secs = floor(mod(seconds, 60))
+    local mins  = floor(mod(seconds, 3600) / 60)
+    local secs  = floor(mod(seconds, 60))
     if hours > 0 then
         return format("%d:%02d:%02d", hours, mins, secs)
     else
@@ -49,17 +47,16 @@ local function FormatTime(seconds)
     end
 end
 
--- Single <-> group buff name aliases.
--- If you track either form, the other will also satisfy the check.
+-----------------------------
+-- ALIASES & REAGENTS
+-----------------------------
 local buffAliases = {
-    -- Priest
     ["Power Word: Fortitude"]         = "Prayer of Fortitude",
     ["Prayer of Fortitude"]           = "Power Word: Fortitude",
     ["Divine Spirit"]                 = "Prayer of Spirit",
     ["Prayer of Spirit"]              = "Divine Spirit",
     ["Shadow Protection"]             = "Prayer of Shadow Protection",
     ["Prayer of Shadow Protection"]   = "Shadow Protection",
-    -- Paladin
     ["Blessing of Kings"]             = "Greater Blessing of Kings",
     ["Greater Blessing of Kings"]     = "Blessing of Kings",
     ["Blessing of Wisdom"]            = "Greater Blessing of Wisdom",
@@ -72,28 +69,19 @@ local buffAliases = {
     ["Greater Blessing of Sanctuary"] = "Blessing of Sanctuary",
     ["Blessing of Light"]             = "Greater Blessing of Light",
     ["Greater Blessing of Light"]     = "Blessing of Light",
-    -- Mage
     ["Arcane Intellect"]              = "Arcane Brilliance",
     ["Arcane Brilliance"]             = "Arcane Intellect",
-    -- Druid
     ["Mark of the Wild"]              = "Gift of the Wild",
     ["Gift of the Wild"]              = "Mark of the Wild",
 }
 
--- Reagents required to cast the group version of a buff.
--- Keyed by either the single or group buff name — both point to the same reagent
--- so it shows regardless of which form you added to the tracker.
--- Reagents required to cast the group version of a buff.
--- Only shown if the player's class matches.
 local buffReagents = {
-    -- Priest (all group buffs use Sacred Candle)
     ["Power Word: Fortitude"]       = { item = "Sacred Candle",  class = "PRIEST"  },
     ["Prayer of Fortitude"]         = { item = "Sacred Candle",  class = "PRIEST"  },
     ["Divine Spirit"]               = { item = "Sacred Candle",  class = "PRIEST"  },
     ["Prayer of Spirit"]            = { item = "Sacred Candle",  class = "PRIEST"  },
     ["Shadow Protection"]           = { item = "Sacred Candle",  class = "PRIEST"  },
     ["Prayer of Shadow Protection"] = { item = "Sacred Candle",  class = "PRIEST"  },
-    -- Paladin (Greater Blessings all use Symbol of Kings)
     ["Blessing of Kings"]              = { item = "Symbol of Kings", class = "PALADIN" },
     ["Greater Blessing of Kings"]      = { item = "Symbol of Kings", class = "PALADIN" },
     ["Blessing of Wisdom"]             = { item = "Symbol of Kings", class = "PALADIN" },
@@ -106,17 +94,15 @@ local buffReagents = {
     ["Greater Blessing of Sanctuary"]  = { item = "Symbol of Kings", class = "PALADIN" },
     ["Blessing of Light"]              = { item = "Symbol of Kings", class = "PALADIN" },
     ["Greater Blessing of Light"]      = { item = "Symbol of Kings", class = "PALADIN" },
-    -- Mage
-    ["Arcane Intellect"]  = { item = "Arcane Powder", class = "MAGE" },
-    ["Arcane Brilliance"] = { item = "Arcane Powder", class = "MAGE" },
-    -- Druid
-    ["Mark of the Wild"] = { item = "Wild Berries", class = "DRUID" },
-    ["Gift of the Wild"]  = { item = "Wild Berries", class = "DRUID" },
+    ["Arcane Intellect"]  = { item = "Arcane Powder", class = "MAGE"  },
+    ["Arcane Brilliance"] = { item = "Arcane Powder", class = "MAGE"  },
+    ["Mark of the Wild"]  = { item = "Wild Berries",  class = "DRUID" },
+    ["Gift of the Wild"]  = { item = "Wild Berries",  class = "DRUID" },
 }
 
--- Buff detection: weapon enchants use GetWeaponEnchantInfo(),
--- everything else uses SuperMacro's global buffed() function.
--- Also checks the single<->group alias so either form satisfies the tracker.
+-----------------------------
+-- BUFF DETECTION
+-----------------------------
 local function IsBuffActive(buff)
     if buff.actionType == "weapon" then
         return GetWeaponEnchantInfo() and true or false
@@ -127,7 +113,6 @@ local function IsBuffActive(buff)
     return false
 end
 
--- Check if a buff name is already in the tracker (checks both name and its alias)
 local function IsAlreadyTracked(name)
     local alias = buffAliases[name]
     for i = 1, table.getn(trackedBuffs) do
@@ -136,6 +121,56 @@ local function IsAlreadyTracked(name)
         if alias and n == alias then return true, n end
     end
     return false, nil
+end
+
+-----------------------------
+-- ACCURATE TIMER via GetPlayerBuff / GetPlayerBuffTimeLeft
+--
+-- Build a snapshot table of  buffName (lowercase) -> remaining seconds
+-- once per update tick, then look up each tracked buff in it.
+-- This is exactly the same API as the working /run snippet:
+--   GetPlayerBuff(i, "HELPFUL|HARMFUL|PASSIVE") -> buffId  (-1 = empty slot)
+--   GetPlayerBuffTimeLeft(buffId)               -> seconds remaining
+--
+-- We identify the buff name by scanning tooltip line 1 of the matching
+-- UnitBuff slot (GetPlayerBuff and UnitBuff share the same 0-based / 1-based
+-- slot order respectively).
+-----------------------------
+local scanTip = CreateFrame("GameTooltip", "MeggicScanTooltip", UIParent, "GameTooltipTemplate")
+scanTip:SetOwner(UIParent, "ANCHOR_NONE")
+
+-- Returns a table mapping  strlower(buffName) -> timeLeftSeconds
+-- for every buff currently on the player.
+local function BuildBuffTimeMap()
+    local map = {}
+    for i = 0, 31 do
+        local buffId = GetPlayerBuff(i, "HELPFUL|HARMFUL|PASSIVE")
+        if buffId and buffId > -1 then
+            -- Identify the name via tooltip line 1 (reliable on all servers)
+            scanTip:ClearLines()
+            scanTip:SetUnitBuff("player", i + 1)   -- UnitBuff is 1-based
+            local line1 = getglobal("MeggicScanTooltipTextLeft1")
+            local name  = line1 and line1:GetText() or ""
+            if name ~= "" then
+                local timeLeft = GetPlayerBuffTimeLeft(buffId)
+                map[strlower(name)] = timeLeft
+            end
+        end
+    end
+    return map
+end
+
+-- Look up remaining time for a tracked buff (checks alias too).
+-- Returns seconds, or nil if buff is not found in the map.
+local function GetBuffTimeLeft(buffMap, buffName)
+    local t = buffMap[strlower(buffName)]
+    if t then return t end
+    local alias = buffAliases[buffName]
+    if alias then
+        t = buffMap[strlower(alias)]
+        if t then return t end
+    end
+    return nil
 end
 
 -----------------------------
@@ -177,7 +212,10 @@ local buffTemplates = {
             { name = "Sagefish Delight",               duration = 15*60,  actionType = "item",  action = "Sagefish Delight" },
             { name = "Danonzo's Tel'Abim Delight",     duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
             { name = "Cerebral Cortex Compound",       duration = 60*60,  actionType = "item",  action = "Cerebral Cortex Compound" },
+            { name = "Medivh's Merlot Blue Label",       duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue Label" },
+            { name = "Emerald Blessing",       duration = 60*60,  actionType = "spell",  action = "Emerald Blessing" },
             { name = "Mageblood Potion",               duration = 60*60,  actionType = "item",  action = "Mageblood Potion" },
+            { name = "Elixir of the Sages",               duration = 60*60,  actionType = "item",  action = "Elixir of the Sages" },
             { name = "Dreamshard Elixir",              duration = 60*60,  actionType = "item",  action = "Dreamshard Elixir" },
             { name = "Spirit of Zanza",                duration = 120*60, actionType = "item",  action = "Spirit of Zanza" },
             { name = "Brilliant Mana Oil",             duration = 30*60,  actionType = "weapon",action = "Brilliant Mana Oil" },
@@ -254,7 +292,7 @@ frame:SetWidth(250)
 frame:SetHeight(50)
 frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 frame:SetBackdrop({
-    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+    bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     tile = true, tileSize = 16, edgeSize = 16,
     insets = { left = 4, right = 4, top = 4, bottom = 4 }
@@ -262,23 +300,55 @@ frame:SetBackdrop({
 frame:SetBackdropColor(0, 0, 0, 0.8)
 frame:EnableMouse(true)
 frame:SetMovable(true)
+frame:SetResizable(true)
+frame:SetMinResize(160, 50)
 frame:RegisterForDrag("LeftButton")
 frame:SetScript("OnDragStart", function() this:StartMoving() end)
 frame:SetScript("OnDragStop", function()
     this:StopMovingOrSizing()
     local _, _, _, x, y = this:GetPoint()
-    MeggicBuffTrackerDB.x = x
-    MeggicBuffTrackerDB.y = y
+    MeggicBuffTrackerDB.x     = x
+    MeggicBuffTrackerDB.y     = y
+    MeggicBuffTrackerDB.width = this:GetWidth()
 end)
 
+-- Title
 local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-title:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -6)
+title:SetPoint("TOPLEFT",  frame, "TOPLEFT",   8, -6)
+title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -52, -6)
+title:SetJustifyH("LEFT")
 title:SetText("Meggic Buff Tracker")
 
+-- [X] close button — rightmost
+local closeTrackerBtn = CreateFrame("Button", "MeggicBuffTrackerCloseBtn", frame)
+closeTrackerBtn:SetWidth(20)
+closeTrackerBtn:SetHeight(14)
+closeTrackerBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
+local closeHL = closeTrackerBtn:CreateTexture(nil, "HIGHLIGHT")
+closeHL:SetAllPoints(closeTrackerBtn)
+closeHL:SetTexture(1, 1, 1, 0.2)
+local closeLabel = closeTrackerBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+closeLabel:SetAllPoints(closeTrackerBtn)
+closeLabel:SetJustifyH("CENTER")
+closeLabel:SetJustifyV("MIDDLE")
+closeLabel:SetText("|cffaaaaaa[X]|r")
+closeTrackerBtn:SetScript("OnClick", function() frame:Hide() end)
+closeTrackerBtn:SetScript("OnEnter", function()
+    closeLabel:SetText("|cffff4444[X]|r")
+    GameTooltip:SetOwner(this, "ANCHOR_BOTTOMLEFT")
+    GameTooltip:SetText("Close Tracker", 1, 1, 1)
+    GameTooltip:Show()
+end)
+closeTrackerBtn:SetScript("OnLeave", function()
+    closeLabel:SetText("|cffaaaaaa[X]|r")
+    GameTooltip:Hide()
+end)
+
+-- [C] config button — just left of [X]
 local cogBtn = CreateFrame("Button", "MeggicBuffTrackerCogBtn", frame)
 cogBtn:SetWidth(20)
 cogBtn:SetHeight(14)
-cogBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
+cogBtn:SetPoint("TOPRIGHT", closeTrackerBtn, "TOPLEFT", -2, 0)
 local cogHL = cogBtn:CreateTexture(nil, "HIGHLIGHT")
 cogHL:SetAllPoints(cogBtn)
 cogHL:SetTexture(1, 1, 1, 0.2)
@@ -301,28 +371,48 @@ cogBtn:SetScript("OnLeave", function()
     GameTooltip:Hide()
 end)
 
------------------------------
--- TRACKER ROWS (with drag-to-reorder)
------------------------------
-local rows = {}
+-- Right-edge resize grip
+local resizeGrip = CreateFrame("Frame", nil, frame)
+resizeGrip:SetWidth(6)
+resizeGrip:SetPoint("TOPRIGHT",    frame, "TOPRIGHT",    0, 0)
+resizeGrip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+resizeGrip:EnableMouse(true)
+local resizeTex = resizeGrip:CreateTexture(nil, "OVERLAY")
+resizeTex:SetAllPoints(resizeGrip)
+resizeTex:SetTexture(0.4, 0.4, 0.4, 0.3)
+resizeGrip:SetScript("OnEnter", function()
+    resizeTex:SetTexture(0.8, 0.8, 0.8, 0.5)
+    GameTooltip:SetOwner(this, "ANCHOR_LEFT")
+    GameTooltip:SetText("Drag to resize", 1, 1, 1)
+    GameTooltip:Show()
+end)
+resizeGrip:SetScript("OnLeave", function()
+    resizeTex:SetTexture(0.4, 0.4, 0.4, 0.3)
+    GameTooltip:Hide()
+end)
+resizeGrip:SetScript("OnMouseDown", function() frame:StartSizing("RIGHT") end)
+resizeGrip:SetScript("OnMouseUp", function()
+    frame:StopMovingOrSizing()
+    local numBuffs = table.getn(trackedBuffs)
+    frame:SetHeight(numBuffs == 0 and 50 or 30 + (numBuffs * 18))
+    MeggicBuffTrackerDB.width = frame:GetWidth()
+end)
 
--- Drag state
+-----------------------------
+-- TRACKER ROWS
+-----------------------------
+local rows      = {}
 local dragIndex = nil
 
 local function GetRowAtCursor()
-    local numBuffs = table.getn(trackedBuffs)
-    for i = 1, numBuffs do
+    for i = 1, table.getn(trackedBuffs) do
         local r = rows[i]
         if r and r:IsShown() then
-            local left   = r:GetLeft()
-            local right  = r:GetRight()
-            local top    = r:GetTop()
-            local bottom = r:GetBottom()
             local cx, cy = GetCursorPosition()
             local scale  = r:GetEffectiveScale()
-            cx = cx / scale
-            cy = cy / scale
-            if cx >= left and cx <= right and cy >= bottom and cy <= top then
+            cx = cx / scale; cy = cy / scale
+            if cx >= r:GetLeft() and cx <= r:GetRight()
+            and cy >= r:GetBottom() and cy <= r:GetTop() then
                 return i
             end
         end
@@ -331,39 +421,33 @@ local function GetRowAtCursor()
 end
 
 local function RefreshTrackerRows()
-    for i = 1, table.getn(rows) do
-        rows[i]:Hide()
-    end
+    for i = 1, table.getn(rows) do rows[i]:Hide() end
     local numBuffs = table.getn(trackedBuffs)
     frame:SetHeight(numBuffs == 0 and 50 or 30 + (numBuffs * 18))
     for i = 1, numBuffs do
         local buff = trackedBuffs[i]
-        local row = rows[i]
+        local row  = rows[i]
         if not row then
             row = CreateFrame("Button", "MeggicBuffTrackerRow" .. i, frame)
-            row:SetWidth(240)
             row:SetHeight(16)
             row.glow = row:CreateTexture(nil, "BACKGROUND")
             row.glow:SetAllPoints(row)
             row.glow:SetTexture(1, 0, 0, 0)
             row.glowAlpha = 0
-            row.glowDir = 1
+            row.glowDir   = 1
             row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
             row.highlight:SetAllPoints(row)
             row.highlight:SetTexture(1, 1, 1, 0.15)
-            -- Drag handle
             row.handle = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             row.handle:SetPoint("LEFT", row, "LEFT", 0, 0)
             row.handle:SetText("|cff555555:::|r")
-            -- Buff name — fills the left side
             row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             row.label:SetPoint("LEFT",  row, "LEFT",  18, 0)
-            row.label:SetPoint("RIGHT", row, "RIGHT", -50, 0)
+            row.label:SetPoint("RIGHT", row, "RIGHT", -52, 0)
             row.label:SetJustifyH("LEFT")
             row.label:SetNonSpaceWrap(false)
-            -- Timer / status — far right
             row.status = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            row.status:SetPoint("LEFT",  row, "RIGHT", -48, 0)
+            row.status:SetPoint("LEFT",  row, "RIGHT", -50, 0)
             row.status:SetPoint("RIGHT", row, "RIGHT",   0, 0)
             row.status:SetJustifyH("RIGHT")
 
@@ -375,21 +459,20 @@ local function RefreshTrackerRows()
             end)
             row:SetScript("OnDragStop", function()
                 if dragIndex then
-                    local targetIndex = GetRowAtCursor()
-                    if targetIndex and targetIndex ~= dragIndex then
+                    local target = GetRowAtCursor()
+                    if target and target ~= dragIndex then
                         local tmp = trackedBuffs[dragIndex]
-                        trackedBuffs[dragIndex] = trackedBuffs[targetIndex]
-                        trackedBuffs[targetIndex] = tmp
+                        trackedBuffs[dragIndex] = trackedBuffs[target]
+                        trackedBuffs[target]    = tmp
                         MeggicBuffTrackerDB.buffs = trackedBuffs
                     end
                     dragIndex = nil
                     RefreshTrackerRows()
                 end
             end)
-
             row:SetScript("OnClick", function()
                 local idx = this.buffIndex
-                local b = this.buff
+                local b   = this.buff
                 if IsShiftKeyDown() then
                     local removedName = b.name
                     table.remove(trackedBuffs, idx)
@@ -397,58 +480,52 @@ local function RefreshTrackerRows()
                     RefreshTrackerRows()
                     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Removed " .. removedName)
                 elseif this.missing or (this.remaining and this.remaining < 120) then
-                    buffStartTimes[b.name] = nil
                     if b.actionType == "spell" and b.action ~= "" then
                         CastSpellByName(b.action)
                     elseif b.actionType == "item" and b.action ~= "" then
                         UseItemFromBags(b.action)
                     elseif b.actionType == "weapon" and b.action ~= "" then
-                        if UseItemFromBags(b.action) then
-                            PickupInventoryItem(16)
-                        end
+                        if UseItemFromBags(b.action) then PickupInventoryItem(16) end
                     else
                         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r No action defined for " .. b.name)
                     end
                 end
             end)
-
             row:SetScript("OnEnter", function()
                 local b = this.buff
                 GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
                 GameTooltip:SetText(b and b.name or "", 1, 1, 1)
                 if b then
-                    -- Item count for consumables and weapon enchant items
-                    if (b.actionType == "item" or (b.actionType == "weapon" and b.action ~= "")) then
+                    if b.actionType == "item" or (b.actionType == "weapon" and b.action ~= "") then
                         local qty = GetItemCountInBags(b.action)
-                        local qtyColor = qty > 0 and "|cffffffff" or "|cffff4444"
-                        GameTooltip:AddLine("In bags: " .. qtyColor .. qty .. "|r", 0.9, 0.9, 0.9)
+                        local c   = qty > 0 and "|cffffffff" or "|cffff4444"
+                        GameTooltip:AddLine("In bags: " .. c .. qty .. "|r", 0.9, 0.9, 0.9)
                     end
-                    -- Reagent count for spells, only for this player's class
-                    local reagentEntry = buffReagents[b.name]
-                    if reagentEntry and reagentEntry.class == playerClass then
-                        local rqty = GetItemCountInBags(reagentEntry.item)
-                        local rColor = rqty > 0 and "|cffffffff" or "|cffff4444"
-                        GameTooltip:AddLine(reagentEntry.item .. ": " .. rColor .. rqty .. "|r", 0.4, 0.7, 1)
+                    local re = buffReagents[b.name]
+                    if re and re.class == playerClass then
+                        local rq = GetItemCountInBags(re.item)
+                        local c  = rq > 0 and "|cffffffff" or "|cffff4444"
+                        GameTooltip:AddLine(re.item .. ": " .. c .. rq .. "|r", 0.4, 0.7, 1)
                     end
                 end
                 GameTooltip:AddLine(" ")
                 GameTooltip:AddLine("Left-click to cast/use", 0.7, 0.7, 0.7)
-                GameTooltip:AddLine("Shift-click to remove", 0.7, 0.7, 0.7)
-                GameTooltip:AddLine("Drag to reorder", 0.7, 0.7, 0.7)
+                GameTooltip:AddLine("Shift-click to remove",  0.7, 0.7, 0.7)
+                GameTooltip:AddLine("Drag to reorder",        0.7, 0.7, 0.7)
                 GameTooltip:Show()
             end)
             row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
             rows[i] = row
         end
-        row:SetPoint("TOPLEFT", frame, "TOPLEFT", 5, -8 - (i * 18))
+        row:SetPoint("TOPLEFT",  frame, "TOPLEFT",  5, -8 - (i * 18))
+        row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -8 - (i * 18))
         row.label:SetText(buff.name)
         row.label:SetTextColor(1, 1, 1)
         row.status:SetText("---")
         row.status:SetTextColor(1, 1, 1)
-        row.buff = buff
+        row.buff      = buff
         row.buffIndex = i
-        row.missing = false
+        row.missing   = false
         row.remaining = buff.duration
         row.glow:SetTexture(1, 0, 0, 0)
         row.glowAlpha = 0
@@ -461,10 +538,10 @@ end
 -----------------------------
 configFrame = CreateFrame("Frame", "MeggicBuffTrackerConfig", UIParent)
 configFrame:SetWidth(330)
-configFrame:SetHeight(460)
+configFrame:SetHeight(235)
 configFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 configFrame:SetBackdrop({
-    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+    bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     tile = true, tileSize = 16, edgeSize = 16,
     insets = { left = 4, right = 4, top = 4, bottom = 4 }
@@ -474,7 +551,7 @@ configFrame:EnableMouse(true)
 configFrame:SetMovable(true)
 configFrame:RegisterForDrag("LeftButton")
 configFrame:SetScript("OnDragStart", function() this:StartMoving() end)
-configFrame:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
+configFrame:SetScript("OnDragStop",  function() this:StopMovingOrSizing() end)
 configFrame:Hide()
 
 local configTitle = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -484,71 +561,13 @@ configTitle:SetText("Add Buff(s) to Track")
 local closeBtn = CreateFrame("Button", nil, configFrame, "UIPanelCloseButton")
 closeBtn:SetPoint("TOPRIGHT", configFrame, "TOPRIGHT", -2, -2)
 
-local instructions = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-instructions:SetPoint("TOP", configFrame, "TOP", 0, -35)
-instructions:SetText("Click a buff icon to fill the name field:")
-instructions:SetTextColor(1, 1, 0)
-
-local buffContainer = CreateFrame("Frame", nil, configFrame)
-buffContainer:SetWidth(310)
-buffContainer:SetHeight(80)
-buffContainer:SetPoint("TOP", configFrame, "TOP", 0, -55)
-
-local buffButtons = {}
-
-local function RefreshCurrentBuffs()
-    for i = 1, table.getn(buffButtons) do
-        buffButtons[i]:Hide()
-    end
-    local col, rowNum = 0, 0
-    for i = 1, 40 do
-        local icon = UnitBuff("player", i)
-        if not icon then break end
-        local btn = buffButtons[i]
-        if not btn then
-            btn = CreateFrame("Button", "MeggicBuffBtn" .. i, buffContainer)
-            btn:SetWidth(32)
-            btn:SetHeight(32)
-            btn.tex = btn:CreateTexture(nil, "ARTWORK")
-            btn.tex:SetAllPoints(btn)
-            btn.border = btn:CreateTexture(nil, "OVERLAY")
-            btn.border:SetPoint("TOPLEFT", btn, "TOPLEFT", -2, 2)
-            btn.border:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 2, -2)
-            btn.border:SetTexture(1, 1, 0, 0)
-            btn:SetScript("OnClick", function()
-                for j = 1, table.getn(buffButtons) do
-                    if buffButtons[j] then buffButtons[j].border:SetTexture(1, 1, 0, 0) end
-                end
-                this.border:SetTexture(1, 1, 0, 0.8)
-                nameInput:SetText(this.buffName or "")
-            end)
-            btn:SetScript("OnEnter", function()
-                GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-                GameTooltip:SetText(this.buffName or "", 1, 1, 1)
-                GameTooltip:Show()
-            end)
-            btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-            buffButtons[i] = btn
-        end
-        btn.tex:SetTexture(icon)
-        btn.buffName = ""
-        btn.border:SetTexture(1, 1, 0, 0)
-        btn:SetPoint("TOPLEFT", buffContainer, "TOPLEFT", col * 36, -rowNum * 36)
-        btn:Show()
-        col = col + 1
-        if col >= 8 then col = 0; rowNum = rowNum + 1 end
-    end
-end
-
 -- Weapon enchant one-click add
 local weaponEnchantBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
-weaponEnchantBtn:SetWidth(270)
-weaponEnchantBtn:SetHeight(20)
-weaponEnchantBtn:SetPoint("TOP", configFrame, "TOP", 0, -140)
+weaponEnchantBtn:SetWidth(270); weaponEnchantBtn:SetHeight(22)
+weaponEnchantBtn:SetPoint("TOP", configFrame, "TOP", 0, -40)
 weaponEnchantBtn:SetText("Add Current Weapon Enchant")
 weaponEnchantBtn:SetScript("OnClick", function()
-    local hasEnchant = GetWeaponEnchantInfo()
-    if not hasEnchant then
+    if not GetWeaponEnchantInfo() then
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r No weapon enchant detected on your main hand.")
         return
     end
@@ -558,96 +577,107 @@ weaponEnchantBtn:SetScript("OnClick", function()
             return
         end
     end
-    table.insert(trackedBuffs, {
-        name       = "Weapon Enchant",
-        duration   = 30 * 60,
-        actionType = "weapon",
-        action     = "",
-    })
+    table.insert(trackedBuffs, { name = "Weapon Enchant", duration = 30*60, actionType = "weapon", action = "" })
     MeggicBuffTrackerDB.buffs = trackedBuffs
     RefreshTrackerRows()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Weapon enchant added to tracker.")
 end)
 
-local sep1 = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-sep1:SetPoint("TOP", configFrame, "TOP", 0, -170)
-sep1:SetText("--- Add Custom Buff ---")
-sep1:SetTextColor(0.5, 0.5, 0.5)
+-- "Add Custom Buff" button — opens the popup modal below
+local addCustomBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
+addCustomBtn:SetWidth(160); addCustomBtn:SetHeight(22)
+addCustomBtn:SetPoint("TOP", configFrame, "TOP", 0, -70)
+addCustomBtn:SetText("+ Add Custom Buff...")
 
-local nameLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-nameLabel:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -190)
-nameLabel:SetText("Buff / Spell / Item:")
+-----------------------------
+-- CUSTOM BUFF POPUP
+-----------------------------
+local customPopup = CreateFrame("Frame", "MeggicCustomBuffPopup", UIParent)
+customPopup:SetWidth(260)
+customPopup:SetHeight(140)
+customPopup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+customPopup:SetBackdrop({
+    bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 16, edgeSize = 16,
+    insets = { left = 4, right = 4, top = 4, bottom = 4 }
+})
+customPopup:SetBackdropColor(0, 0, 0, 0.95)
+customPopup:EnableMouse(true)
+customPopup:SetMovable(true)
+customPopup:RegisterForDrag("LeftButton")
+customPopup:SetScript("OnDragStart", function() this:StartMoving() end)
+customPopup:SetScript("OnDragStop",  function() this:StopMovingOrSizing() end)
+customPopup:SetFrameLevel(configFrame:GetFrameLevel() + 20)
+customPopup:Hide()
 
-nameInput = CreateFrame("EditBox", "MeggicBuffTrackerNameInput", configFrame, "InputBoxTemplate")
-nameInput:SetWidth(170)
-nameInput:SetHeight(20)
-nameInput:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 125, -187)
-nameInput:SetAutoFocus(false)
+local popupTitle = customPopup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+popupTitle:SetPoint("TOP", customPopup, "TOP", 0, -10)
+popupTitle:SetText("Add Custom Buff")
 
-local nameHelp = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-nameHelp:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -210)
-nameHelp:SetText("Must match the spell/item name EXACTLY.")
-nameHelp:SetTextColor(0.6, 0.6, 0.6)
+local popupClose = CreateFrame("Button", nil, customPopup, "UIPanelCloseButton")
+popupClose:SetPoint("TOPRIGHT", customPopup, "TOPRIGHT", -2, -2)
+popupClose:SetScript("OnClick", function() customPopup:Hide() end)
 
-local typeLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-typeLabel:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -228)
-typeLabel:SetText("Action Type:")
+-- Name field
+local popupNameLabel = customPopup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+popupNameLabel:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 15, -38)
+popupNameLabel:SetText("Name:")
 
-local selectedType = "spell"
+local popupNameInput = CreateFrame("EditBox", "MeggicPopupNameInput", customPopup, "InputBoxTemplate")
+popupNameInput:SetWidth(155); popupNameInput:SetHeight(20)
+popupNameInput:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 75, -35)
+popupNameInput:SetAutoFocus(false)
 
-local spellBtn = CreateFrame("Button", "MeggicTypeSpell", configFrame)
-spellBtn:SetWidth(60)
-spellBtn:SetHeight(20)
-spellBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 95, -225)
-spellBtn.bg = spellBtn:CreateTexture(nil, "BACKGROUND")
-spellBtn.bg:SetAllPoints(spellBtn)
-spellBtn.bg:SetTexture(0.2, 0.6, 0.2, 0.8)
-spellBtn.text = spellBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-spellBtn.text:SetPoint("CENTER", spellBtn, "CENTER")
-spellBtn.text:SetText("Spell")
+local popupNameHelp = customPopup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+popupNameHelp:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 15, -60)
+popupNameHelp:SetText("Must match the spell/item name EXACTLY.")
+popupNameHelp:SetTextColor(0.6, 0.6, 0.6)
 
-local itemBtn = CreateFrame("Button", "MeggicTypeItem", configFrame)
-itemBtn:SetWidth(60)
-itemBtn:SetHeight(20)
-itemBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 160, -225)
-itemBtn.bg = itemBtn:CreateTexture(nil, "BACKGROUND")
-itemBtn.bg:SetAllPoints(itemBtn)
-itemBtn.bg:SetTexture(0.2, 0.2, 0.2, 0.8)
-itemBtn.text = itemBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-itemBtn.text:SetPoint("CENTER", itemBtn, "CENTER")
-itemBtn.text:SetText("Item")
+-- Type selector
+local popupTypeLabel = customPopup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+popupTypeLabel:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 15, -80)
+popupTypeLabel:SetText("Type:")
 
-local function SelectType(newType)
-    selectedType = newType
-    spellBtn.bg:SetTexture(0.2, newType == "spell" and 0.6 or 0.2, 0.2, 0.8)
-    itemBtn.bg:SetTexture(0.2, newType == "item" and 0.6 or 0.2, 0.2, 0.8)
+local popupSelectedType = "spell"
+
+local popupSpellBtn = CreateFrame("Button", "MeggicPopupSpell", customPopup)
+popupSpellBtn:SetWidth(60); popupSpellBtn:SetHeight(20)
+popupSpellBtn:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 60, -77)
+popupSpellBtn.bg = popupSpellBtn:CreateTexture(nil, "BACKGROUND")
+popupSpellBtn.bg:SetAllPoints(popupSpellBtn)
+popupSpellBtn.bg:SetTexture(0.2, 0.6, 0.2, 0.8)
+popupSpellBtn.text = popupSpellBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+popupSpellBtn.text:SetPoint("CENTER", popupSpellBtn, "CENTER")
+popupSpellBtn.text:SetText("Spell")
+
+local popupItemBtn = CreateFrame("Button", "MeggicPopupItem", customPopup)
+popupItemBtn:SetWidth(60); popupItemBtn:SetHeight(20)
+popupItemBtn:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 125, -77)
+popupItemBtn.bg = popupItemBtn:CreateTexture(nil, "BACKGROUND")
+popupItemBtn.bg:SetAllPoints(popupItemBtn)
+popupItemBtn.bg:SetTexture(0.2, 0.2, 0.2, 0.8)
+popupItemBtn.text = popupItemBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+popupItemBtn.text:SetPoint("CENTER", popupItemBtn, "CENTER")
+popupItemBtn.text:SetText("Item")
+
+local function PopupSelectType(t)
+    popupSelectedType = t
+    popupSpellBtn.bg:SetTexture(0.2, t == "spell" and 0.6 or 0.2, 0.2, 0.8)
+    popupItemBtn.bg:SetTexture( 0.2, t == "item"  and 0.6 or 0.2, 0.2, 0.8)
 end
-spellBtn.bg:SetTexture(0.2, 0.6, 0.2, 0.8)
-itemBtn.bg:SetTexture(0.2, 0.2, 0.2, 0.8)
+popupSpellBtn:SetScript("OnClick", function() PopupSelectType("spell") end)
+popupItemBtn:SetScript("OnClick",  function() PopupSelectType("item")  end)
 
-spellBtn:SetScript("OnClick", function() SelectType("spell") end)
-itemBtn:SetScript("OnClick", function() SelectType("item") end)
-
-local durationLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-durationLabel:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -257)
-durationLabel:SetText("Duration (min):")
-
-local durationInput = CreateFrame("EditBox", "MeggicBuffTrackerDurationInput", configFrame, "InputBoxTemplate")
-durationInput:SetWidth(80)
-durationInput:SetHeight(20)
-durationInput:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 110, -254)
-durationInput:SetAutoFocus(false)
-durationInput:SetText("30")
-
-local addBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
-addBtn:SetWidth(130)
-addBtn:SetHeight(25)
-addBtn:SetPoint("TOP", configFrame, "TOP", 0, -290)
-addBtn:SetText("Add Custom Buff")
-addBtn:SetScript("OnClick", function()
-    local name = nameInput:GetText()
+-- Add button
+local popupAddBtn = CreateFrame("Button", nil, customPopup, "UIPanelButtonTemplate")
+popupAddBtn:SetWidth(100); popupAddBtn:SetHeight(24)
+popupAddBtn:SetPoint("BOTTOM", customPopup, "BOTTOM", 0, 12)
+popupAddBtn:SetText("Add Buff")
+popupAddBtn:SetScript("OnClick", function()
+    local name = popupNameInput:GetText()
     if not name or name == "" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r Please enter a buff/spell/item name.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r Please enter a name.")
         return
     end
     local exists, existingName = IsAlreadyTracked(name)
@@ -655,24 +685,30 @@ addBtn:SetScript("OnClick", function()
         if existingName == name then
             DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MeggicBuffTracker:|r '" .. name .. "' is already being tracked.")
         else
-            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MeggicBuffTracker:|r '" .. name .. "' is already covered by '" .. existingName .. "' (alias match).")
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MeggicBuffTracker:|r '" .. name .. "' is covered by '" .. existingName .. "' (alias).")
         end
         return
     end
-    local durationMins = tonumber(durationInput:GetText()) or 30
-    table.insert(trackedBuffs, {
-        name       = name,
-        duration   = durationMins * 60,
-        actionType = selectedType,
-        action     = name,
-    })
+    -- Duration is not needed — GetPlayerBuffTimeLeft provides it live.
+    -- Store 0 as a sentinel; fallback countdown only activates for weapon enchants.
+    table.insert(trackedBuffs, { name = name, duration = 60*60, actionType = popupSelectedType, action = name })
     MeggicBuffTrackerDB.buffs = trackedBuffs
     RefreshTrackerRows()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Added " .. name)
-    nameInput:SetText("")
-    durationInput:SetText("30")
-    for j = 1, table.getn(buffButtons) do
-        if buffButtons[j] then buffButtons[j].border:SetTexture(1, 1, 0, 0) end
+    popupNameInput:SetText("")
+    PopupSelectType("spell")
+    customPopup:Hide()
+end)
+
+-- Wire up the config button to open the popup
+addCustomBtn:SetScript("OnClick", function()
+    if customPopup:IsShown() then
+        customPopup:Hide()
+    else
+        popupNameInput:SetText("")
+        PopupSelectType("spell")
+        customPopup:SetPoint("CENTER", configFrame, "CENTER", 0, 0)
+        customPopup:Show()
     end
 end)
 
@@ -680,16 +716,15 @@ end)
 -- TEMPLATE SECTION
 -----------------------------
 local templateSep = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-templateSep:SetPoint("TOP", configFrame, "TOP", 0, -325)
+templateSep:SetPoint("TOP", configFrame, "TOP", 0, -105)
 templateSep:SetText("--- OR Choose a Template ---")
 templateSep:SetTextColor(0.5, 0.5, 0.5)
 
 local selectedTemplateIndex = 1
 
 local templateDropBtn = CreateFrame("Button", "MeggicTemplateDropBtn", configFrame, "UIPanelButtonTemplate")
-templateDropBtn:SetWidth(190)
-templateDropBtn:SetHeight(22)
-templateDropBtn:SetPoint("TOP", configFrame, "TOP", -30, -348)
+templateDropBtn:SetWidth(190); templateDropBtn:SetHeight(22)
+templateDropBtn:SetPoint("TOP", configFrame, "TOP", -30, -128)
 templateDropBtn:SetText(buffTemplates[1].label)
 
 local arrowLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -700,7 +735,7 @@ local dropList = CreateFrame("Frame", "MeggicTemplateDropList", configFrame)
 dropList:SetWidth(200)
 dropList:SetFrameLevel(configFrame:GetFrameLevel() + 10)
 dropList:SetBackdrop({
-    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+    bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     tile = true, tileSize = 16, edgeSize = 16,
     insets = { left = 4, right = 4, top = 4, bottom = 4 }
@@ -711,14 +746,13 @@ dropList:Hide()
 local dropItems = {}
 local function BuildDropList()
     for i = 1, table.getn(dropItems) do dropItems[i]:Hide() end
-    local numTemplates = table.getn(buffTemplates)
-    dropList:SetHeight(8 + numTemplates * 20)
-    for i = 1, numTemplates do
+    local n = table.getn(buffTemplates)
+    dropList:SetHeight(8 + n * 20)
+    for i = 1, n do
         local item = dropItems[i]
         if not item then
             item = CreateFrame("Button", "MeggicDropItem" .. i, dropList)
-            item:SetWidth(192)
-            item:SetHeight(18)
+            item:SetWidth(192); item:SetHeight(18)
             item.hl = item:CreateTexture(nil, "HIGHLIGHT")
             item.hl:SetAllPoints(item)
             item.hl:SetTexture(0.3, 0.6, 1, 0.3)
@@ -733,26 +767,20 @@ local function BuildDropList()
         end
         item.templateIndex = i
         item.lbl:SetText(buffTemplates[i].label)
-        item:SetPoint("TOPLEFT", dropList, "TOPLEFT", 4, -4 - (i - 1) * 20)
+        item:SetPoint("TOPLEFT", dropList, "TOPLEFT", 4, -4 - (i-1)*20)
         item:Show()
     end
 end
 
 templateDropBtn:SetScript("OnClick", function()
-    if dropList:IsShown() then
-        dropList:Hide()
-    else
-        BuildDropList()
-        dropList:SetPoint("TOPLEFT", templateDropBtn, "BOTTOMLEFT", 0, -2)
-        dropList:Show()
-    end
+    if dropList:IsShown() then dropList:Hide()
+    else BuildDropList(); dropList:SetPoint("TOPLEFT", templateDropBtn, "BOTTOMLEFT", 0, -2); dropList:Show() end
 end)
 
 local addTemplateBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
-addTemplateBtn:SetWidth(80)
-addTemplateBtn:SetHeight(22)
+addTemplateBtn:SetWidth(80); addTemplateBtn:SetHeight(22)
 addTemplateBtn:SetPoint("LEFT", templateDropBtn, "RIGHT", 10, 0)
-addTemplateBtn:SetPoint("TOP", configFrame, "TOP", 85, -348)
+addTemplateBtn:SetPoint("TOP",  configFrame, "TOP", 85, -128)
 addTemplateBtn:SetText("Add")
 addTemplateBtn:SetScript("OnClick", function()
     local template = buffTemplates[selectedTemplateIndex]
@@ -763,16 +791,11 @@ addTemplateBtn:SetScript("OnClick", function()
     local added, skipped = 0, 0
     for i = 1, table.getn(template.buffs) do
         local tb = template.buffs[i]
-        local exists, existingName = IsAlreadyTracked(tb.name)
+        local exists = IsAlreadyTracked(tb.name)
         if exists then
             skipped = skipped + 1
         else
-            table.insert(trackedBuffs, {
-                name       = tb.name,
-                duration   = tb.duration,
-                actionType = tb.actionType,
-                action     = tb.action,
-            })
+            table.insert(trackedBuffs, { name = tb.name, duration = tb.duration, actionType = tb.actionType, action = tb.action })
             added = added + 1
         end
     end
@@ -785,43 +808,102 @@ addTemplateBtn:SetScript("OnClick", function()
 end)
 
 -----------------------------
--- BOTTOM HELP / REFRESH
+-- OPTIONS
 -----------------------------
+local raidOnlySep = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+raidOnlySep:SetPoint("TOP", configFrame, "TOP", 0, -165)
+raidOnlySep:SetText("--- Options ---")
+raidOnlySep:SetTextColor(0.5, 0.5, 0.5)
+
+local raidOnlyBtn = CreateFrame("Button", "MeggicRaidOnlyBtn", configFrame)
+raidOnlyBtn:SetWidth(14); raidOnlyBtn:SetHeight(14)
+raidOnlyBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -185)
+-- Dark background
+raidOnlyBtn.bg = raidOnlyBtn:CreateTexture(nil, "BACKGROUND")
+raidOnlyBtn.bg:SetAllPoints(raidOnlyBtn)
+raidOnlyBtn.bg:SetTexture(0.15, 0.15, 0.15, 1)
+-- Red border drawn as four 1px edge textures
+local function AddBorder(parent, r, g, b)
+    local t = parent:CreateTexture(nil, "BORDER")
+    t:SetPoint("TOPLEFT",     parent, "TOPLEFT",     0,  0)
+    t:SetPoint("BOTTOMRIGHT", parent, "TOPRIGHT",    0, -1)
+    t:SetTexture(r, g, b, 1)
+    local bo = parent:CreateTexture(nil, "BORDER")
+    bo:SetPoint("TOPLEFT",     parent, "BOTTOMLEFT",  0,  1)
+    bo:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0,  0)
+    bo:SetTexture(r, g, b, 1)
+    local le = parent:CreateTexture(nil, "BORDER")
+    le:SetPoint("TOPLEFT",     parent, "TOPLEFT",  0,  0)
+    le:SetPoint("BOTTOMRIGHT", parent, "BOTTOMLEFT", 1, 0)
+    le:SetTexture(r, g, b, 1)
+    local ri = parent:CreateTexture(nil, "BORDER")
+    ri:SetPoint("TOPLEFT",     parent, "TOPRIGHT",    -1, 0)
+    ri:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT",  0, 0)
+    ri:SetTexture(r, g, b, 1)
+end
+AddBorder(raidOnlyBtn, 0.8, 0.1, 0.1)
+-- Checkmark overlay
+raidOnlyBtn.check = raidOnlyBtn:CreateTexture(nil, "OVERLAY")
+raidOnlyBtn.check:SetAllPoints(raidOnlyBtn)
+raidOnlyBtn.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+raidOnlyBtn.check:SetAlpha(MeggicBuffTrackerDB.showInRaidOnly and 1 or 0)
+
+local raidOnlyLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+raidOnlyLabel:SetPoint("LEFT", raidOnlyBtn, "RIGHT", 6, 0)
+raidOnlyLabel:SetText("Only show tracker when in a raid group")
+raidOnlyLabel:SetTextColor(0.9, 0.9, 0.9)
+
+raidOnlyBtn:SetScript("OnClick", function()
+    MeggicBuffTrackerDB.showInRaidOnly = not MeggicBuffTrackerDB.showInRaidOnly
+    this.check:SetAlpha(MeggicBuffTrackerDB.showInRaidOnly and 1 or 0)
+    if MeggicBuffTrackerDB.showInRaidOnly and not UnitInRaid("player") then
+        frame:Hide()
+    elseif not MeggicBuffTrackerDB.showInRaidOnly then
+        frame:Show()
+    end
+end)
+
 local helpText = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-helpText:SetPoint("BOTTOM", configFrame, "BOTTOM", 0, 40)
-helpText:SetText("Shift+Click to remove  |  Drag to reorder")
+helpText:SetPoint("BOTTOM", configFrame, "BOTTOM", 0, 15)
+helpText:SetText("Shift+Click a row to remove  |  Drag to reorder")
 helpText:SetTextColor(0.7, 0.7, 0.7)
 
-local refreshBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
-refreshBtn:SetWidth(100)
-refreshBtn:SetHeight(20)
-refreshBtn:SetPoint("BOTTOM", configFrame, "BOTTOM", 0, 15)
-refreshBtn:SetText("Refresh Buffs")
-refreshBtn:SetScript("OnClick", function() RefreshCurrentBuffs() end)
-
-configFrame:SetScript("OnShow", function() RefreshCurrentBuffs() end)
-configFrame:SetScript("OnHide", function() dropList:Hide() end)
+configFrame:SetScript("OnShow", function()
+    raidOnlyBtn.check:SetAlpha(MeggicBuffTrackerDB.showInRaidOnly and 1 or 0)
+end)
+configFrame:SetScript("OnHide", function()
+    dropList:Hide()
+    customPopup:Hide()
+end)
 
 -----------------------------
 -- UPDATE LOOP
+-- Uses GetPlayerBuff / GetPlayerBuffTimeLeft for accurate remaining seconds.
+-- Once per tick we build a name->timeLeft map, then update every row from it.
 -----------------------------
 local elapsed = 0
 frame:SetScript("OnUpdate", function()
     elapsed = elapsed + arg1
-    if elapsed >= 0.5 then
+    if elapsed >= 1 then
         elapsed = 0
-        local currentTime = GetTime()
+
+        -- Build buffName(lowercase) -> timeLeft map using the working API
+        local buffMap = BuildBuffTimeMap()
+
         for i = 1, table.getn(rows) do
             local row = rows[i]
             if row:IsShown() and row.buff then
-                local buff = row.buff
-                local buffKey = buff.name
+                local buff  = row.buff
                 local found = IsBuffActive(buff)
                 if found then
-                    if not buffStartTimes[buffKey] then
-                        buffStartTimes[buffKey] = currentTime
+                    local remaining
+                    if buff.actionType == "weapon" then
+                        local hasEnchant, enchantExpiry = GetWeaponEnchantInfo()
+                        remaining = (hasEnchant and enchantExpiry) and (enchantExpiry / 1000) or buff.duration
+                    else
+                        remaining = GetBuffTimeLeft(buffMap, buff.name)
+                        if remaining == nil then remaining = buff.duration end
                     end
-                    local remaining = buff.duration - (currentTime - buffStartTimes[buffKey])
                     if remaining < 0 then remaining = 0 end
                     row.remaining = remaining
                     row.status:SetText(FormatTime(remaining))
@@ -837,7 +919,6 @@ frame:SetScript("OnUpdate", function()
                     row.glow:SetTexture(1, 0, 0, 0)
                     row.glowAlpha = 0
                 else
-                    buffStartTimes[buffKey] = nil
                     row.remaining = 0
                     row.status:SetText("MISSING")
                     row.status:SetTextColor(1, 0, 0)
@@ -852,36 +933,73 @@ frame:SetScript("OnUpdate", function()
         local row = rows[i]
         if row:IsShown() and row.missing then
             row.glowAlpha = row.glowAlpha + (row.glowDir * arg1 * 2)
-            if row.glowAlpha >= 0.4 then
-                row.glowDir = -1; row.glowAlpha = 0.4
-            elseif row.glowAlpha <= 0 then
-                row.glowDir = 1; row.glowAlpha = 0
-            end
+            if row.glowAlpha >= 0.4 then row.glowDir = -1; row.glowAlpha = 0.4
+            elseif row.glowAlpha <= 0 then row.glowDir = 1; row.glowAlpha = 0 end
             row.glow:SetTexture(1, 0, 0, row.glowAlpha)
         end
     end
 end)
 
 -----------------------------
--- SAVE / LOAD
+-- EVENT HANDLING
 -----------------------------
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("VARIABLES_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGOUT")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
+
+local wasInRaid = false
+
+local function HandleVisibility()
+    if not MeggicBuffTrackerDB.showInRaidOnly then
+        frame:Show()
+        return
+    end
+    local inRaid = UnitInRaid("player") ~= nil
+    if inRaid then
+        frame:Show()
+    else
+        frame:Hide()
+    end
+    wasInRaid = inRaid
+end
+
 eventFrame:SetScript("OnEvent", function()
     if event == "VARIABLES_LOADED" then
-        if MeggicBuffTrackerDB then
-            trackedBuffs = MeggicBuffTrackerDB.buffs or {}
-            MeggicBuffTrackerDB.buffs = trackedBuffs
-            if MeggicBuffTrackerDB.x and MeggicBuffTrackerDB.y then
-                frame:ClearAllPoints()
-                frame:SetPoint("CENTER", UIParent, "CENTER", MeggicBuffTrackerDB.x, MeggicBuffTrackerDB.y)
-            end
-            RefreshTrackerRows()
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker|r loaded " .. table.getn(trackedBuffs) .. " saved buffs.")
+        MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false }
+        if MeggicBuffTrackerDB.showInRaidOnly == nil then MeggicBuffTrackerDB.showInRaidOnly = false end
+        if MeggicBuffTrackerDB.width          == nil then MeggicBuffTrackerDB.width = 250 end
+        trackedBuffs = MeggicBuffTrackerDB.buffs or {}
+        MeggicBuffTrackerDB.buffs = trackedBuffs
+        if MeggicBuffTrackerDB.x and MeggicBuffTrackerDB.y then
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", UIParent, "CENTER", MeggicBuffTrackerDB.x, MeggicBuffTrackerDB.y)
         end
+        frame:SetWidth(MeggicBuffTrackerDB.width)
+        RefreshTrackerRows()
+        wasInRaid = UnitInRaid("player") ~= nil
+        HandleVisibility()
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker|r loaded " .. table.getn(trackedBuffs) .. " saved buffs.")
+
     elseif event == "PLAYER_LOGOUT" then
         MeggicBuffTrackerDB.buffs = trackedBuffs
+        MeggicBuffTrackerDB.width = frame:GetWidth()
+
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        wasInRaid = UnitInRaid("player") ~= nil
+        HandleVisibility()
+
+    elseif event == "RAID_ROSTER_UPDATE" then
+        local inRaid = UnitInRaid("player") ~= nil
+        if MeggicBuffTrackerDB.showInRaidOnly then
+            if inRaid and not wasInRaid then
+                frame:Show()   -- just joined raid — auto-open
+            elseif not inRaid and wasInRaid then
+                frame:Hide()   -- just left raid — auto-close
+            end
+        end
+        wasInRaid = inRaid
     end
 end)
 
@@ -896,21 +1014,20 @@ SlashCmdList["MEGGICBUFFTRACKER"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker Help|r")
         DEFAULT_CHAT_FRAME:AddMessage("/mbt - toggle tracker visibility")
         DEFAULT_CHAT_FRAME:AddMessage("/mbt config - open configuration window")
-        DEFAULT_CHAT_FRAME:AddMessage("/mbt reset - reset tracker position")
+        DEFAULT_CHAT_FRAME:AddMessage("/mbt reset - reset tracker position and size")
         DEFAULT_CHAT_FRAME:AddMessage("/mbt clear - remove all tracked buffs")
         DEFAULT_CHAT_FRAME:AddMessage(" ")
+        DEFAULT_CHAT_FRAME:AddMessage("Resize: drag the right edge of the tracker.")
         DEFAULT_CHAT_FRAME:AddMessage("Buff names must match spell/item names exactly.")
-        DEFAULT_CHAT_FRAME:AddMessage("Shift+Click a tracked buff row to remove it.")
-        DEFAULT_CHAT_FRAME:AddMessage("Drag a tracked buff row to reorder it.")
-        return
+        DEFAULT_CHAT_FRAME:AddMessage("Shift+Click a row to remove it. Drag to reorder.")
     elseif msg == "config" then
         if configFrame:IsShown() then configFrame:Hide() else configFrame:Show() end
     elseif msg == "reset" then
-        MeggicBuffTrackerDB.x = 0
-        MeggicBuffTrackerDB.y = 0
+        MeggicBuffTrackerDB.x = 0; MeggicBuffTrackerDB.y = 0; MeggicBuffTrackerDB.width = 250
         frame:ClearAllPoints()
         frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        DEFAULT_CHAT_FRAME:AddMessage("MeggicBuffTracker position reset.")
+        frame:SetWidth(250)
+        DEFAULT_CHAT_FRAME:AddMessage("MeggicBuffTracker position and size reset.")
     elseif msg == "clear" then
         trackedBuffs = {}
         MeggicBuffTrackerDB.buffs = trackedBuffs
@@ -919,10 +1036,10 @@ SlashCmdList["MEGGICBUFFTRACKER"] = function(msg)
     elseif frame:IsShown() then
         frame:Hide()
     else
+        -- Manual toggle always works, even with showInRaidOnly enabled
         frame:Show()
     end
 end
 
 DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker|r loaded. Requires SuperMacro.")
-DEFAULT_CHAT_FRAME:AddMessage(" /mbt help - commands")
-DEFAULT_CHAT_FRAME:AddMessage(" /mbt config - open config")
+DEFAULT_CHAT_FRAME:AddMessage(" /mbt help - commands | /mbt config - open config")
