@@ -125,21 +125,44 @@ end
 
 -----------------------------
 -- ACCURATE TIMER
+-- Strategy: build two separate tables, then join on icon path.
+--   iconToTime : icon(lower) -> timeLeft   (from GetPlayerBuff 0-based loop)
+--   nameToIcon : buffName(lower) -> icon(lower)  (from UnitBuff tooltip 1-based loop)
+-- Joining on icon avoids any assumption about slot order alignment.
 -----------------------------
 local scanTip = CreateFrame("GameTooltip", "MeggicScanTooltip", UIParent, "GameTooltipTemplate")
 scanTip:SetOwner(UIParent, "ANCHOR_NONE")
 
 local function BuildBuffTimeMap()
-    local map = {}
+    -- Step 1: icon -> timeLeft from GetPlayerBuff (0-based)
+    local iconToTime = {}
     for i = 0, 31 do
         local buffId = GetPlayerBuff(i, "HELPFUL|HARMFUL|PASSIVE")
         if buffId and buffId > -1 then
-            scanTip:ClearLines()
-            scanTip:SetUnitBuff("player", i + 1)
-            local line1 = getglobal("MeggicScanTooltipTextLeft1")
-            local name  = line1 and line1:GetText() or ""
-            if name ~= "" then
-                map[strlower(name)] = GetPlayerBuffTimeLeft(buffId)
+            local timeLeft = GetPlayerBuffTimeLeft(buffId)
+            local icon = GetPlayerBuffTexture(buffId)
+            if icon then
+                iconToTime[strlower(icon)] = timeLeft
+            end
+        end
+    end
+
+    -- Step 2: name -> icon from UnitBuff (1-based) via tooltip line 1
+    -- UnitBuff returns the icon directly, and tooltip gives us the name.
+    -- We read both from the same slot so they're guaranteed to match.
+    local map = {}
+    for i = 1, 40 do
+        local icon = UnitBuff("player", i)
+        if not icon then break end
+        -- Get the name via tooltip for this slot
+        scanTip:ClearLines()
+        scanTip:SetUnitBuff("player", i)
+        local line1 = getglobal("MeggicScanTooltipTextLeft1")
+        local name  = line1 and line1:GetText() or ""
+        if name ~= "" then
+            local timeLeft = iconToTime[strlower(icon)]
+            if timeLeft ~= nil then
+                map[strlower(name)] = timeLeft
             end
         end
     end
@@ -148,11 +171,11 @@ end
 
 local function GetBuffTimeLeft(buffMap, buffName)
     local t = buffMap[strlower(buffName)]
-    if t then return t end
+    if t ~= nil then return t end
     local alias = buffAliases[buffName]
     if alias then
         t = buffMap[strlower(alias)]
-        if t then return t end
+        if t ~= nil then return t end
     end
     return nil
 end
@@ -409,7 +432,7 @@ end)
 
 -- [-]/[+] collapse button — just left of [C]
 local isCollapsed   = false
-local COLLAPSE_ROWS = 10  -- max rows shown when collapsed
+local COLLAPSE_ROWS = 10
 
 local collapseBtn = CreateFrame("Button", "MeggicBuffTrackerCollapseBtn", frame)
 collapseBtn:SetWidth(20)
@@ -473,18 +496,15 @@ local function GetRowAtCursor()
     return nil
 end
 
--- Compute how many rows should be visible given current collapse state
 local function VisibleRowCount()
     local total = table.getn(trackedBuffs)
-    if isCollapsed then
-        return math.min(total, COLLAPSE_ROWS)
-    end
+    if isCollapsed then return math.min(total, COLLAPSE_ROWS) end
     return total
 end
 
 local function RefreshTrackerRows()
     for i = 1, table.getn(rows) do rows[i]:Hide() end
-    local numBuffs  = table.getn(trackedBuffs)
+    local numBuffs   = table.getn(trackedBuffs)
     local numVisible = VisibleRowCount()
     frame:SetHeight(numVisible == 0 and 50 or 30 + (numVisible * 18))
 
@@ -582,7 +602,6 @@ local function RefreshTrackerRows()
             rows[i] = row
         end
 
-        -- Only show rows within the visible count
         if i <= numVisible then
             row:SetPoint("TOPLEFT",  frame, "TOPLEFT",  5, -8 - (i * 18))
             row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -8 - (i * 18))
@@ -598,13 +617,10 @@ local function RefreshTrackerRows()
             row.glowAlpha = 0
             row:Show()
         end
-        -- rows beyond numVisible stay hidden (already hidden above)
     end
 
-    -- Update collapse button label and tooltip
     local total = table.getn(trackedBuffs)
     if total <= COLLAPSE_ROWS then
-        -- Not enough rows to need collapsing — grey out the button
         collapseLabel:SetText("|cff444444[-]|r")
     elseif isCollapsed then
         collapseLabel:SetText("|cff00ff00[+]|r")
@@ -613,10 +629,9 @@ local function RefreshTrackerRows()
     end
 end
 
--- Wire up collapse button now that RefreshTrackerRows is defined
 collapseBtn:SetScript("OnClick", function()
     local total = table.getn(trackedBuffs)
-    if total <= COLLAPSE_ROWS then return end  -- nothing to collapse
+    if total <= COLLAPSE_ROWS then return end
     isCollapsed = not isCollapsed
     RefreshTrackerRows()
 end)
@@ -624,7 +639,7 @@ collapseBtn:SetScript("OnEnter", function()
     local total = table.getn(trackedBuffs)
     GameTooltip:SetOwner(this, "ANCHOR_BOTTOMLEFT")
     if total <= COLLAPSE_ROWS then
-        GameTooltip:SetText("Nothing to collapse (≤ " .. COLLAPSE_ROWS .. " rows)", 0.5, 0.5, 0.5)
+        GameTooltip:SetText("Nothing to collapse (<= " .. COLLAPSE_ROWS .. " rows)", 0.5, 0.5, 0.5)
     elseif isCollapsed then
         GameTooltip:SetText("Expand — show all " .. total .. " rows", 1, 1, 1)
     else
@@ -662,7 +677,6 @@ configTitle:SetText("Add Buff(s) to Track")
 local closeBtn = CreateFrame("Button", nil, configFrame, "UIPanelCloseButton")
 closeBtn:SetPoint("TOPRIGHT", configFrame, "TOPRIGHT", -2, -2)
 
--- Weapon enchant one-click add
 local weaponEnchantBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
 weaponEnchantBtn:SetWidth(270); weaponEnchantBtn:SetHeight(22)
 weaponEnchantBtn:SetPoint("TOP", configFrame, "TOP", 0, -40)
@@ -684,7 +698,6 @@ weaponEnchantBtn:SetScript("OnClick", function()
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Weapon enchant added to tracker.")
 end)
 
--- "Add Custom Buff" button
 local addCustomBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
 addCustomBtn:SetWidth(160); addCustomBtn:SetHeight(22)
 addCustomBtn:SetPoint("TOP", configFrame, "TOP", 0, -70)
@@ -988,18 +1001,31 @@ frame:SetScript("OnUpdate", function()
                         local hasEnchant, enchantExpiry = GetWeaponEnchantInfo()
                         remaining = (hasEnchant and enchantExpiry) and (enchantExpiry / 1000) or buff.duration
                     else
-                        remaining = GetBuffTimeLeft(buffMap, buff.name)
-                        if remaining == nil then remaining = buff.duration end
+                        local t = GetBuffTimeLeft(buffMap, buff.name)
+                        if t == nil then
+                            -- Not found in map — show permanent indicator
+                            remaining = nil
+                        elseif t == 0 then
+                            -- Server returns 0 for permanent buffs
+                            remaining = nil
+                        else
+                            remaining = t
+                        end
                     end
-                    if remaining < 0 then remaining = 0 end
-                    row.remaining = remaining
-                    row.status:SetText(FormatTime(remaining))
-                    if remaining < 60 then
-                        row.status:SetTextColor(1, 0.3, 0.3)
-                    elseif remaining < 300 then
-                        row.status:SetTextColor(1, 1, 0)
+                    row.remaining = remaining or 0
+                    if remaining == nil then
+                        row.status:SetText("|cffaaaaaa--:--|r")
+                        row.status:SetTextColor(1, 1, 1)
                     else
-                        row.status:SetTextColor(0, 1, 0)
+                        if remaining < 0 then remaining = 0 end
+                        row.status:SetText(FormatTime(remaining))
+                        if remaining < 60 then
+                            row.status:SetTextColor(1, 0.3, 0.3)
+                        elseif remaining < 300 then
+                            row.status:SetTextColor(1, 1, 0)
+                        else
+                            row.status:SetTextColor(0, 1, 0)
+                        end
                     end
                     row.label:SetTextColor(1, 1, 1)
                     row.missing = false
@@ -1062,8 +1088,6 @@ eventFrame:SetScript("OnEvent", function()
         frame:SetWidth(MeggicBuffTrackerDB.width)
         RefreshTrackerRows()
         wasInRaid = UnitInRaid("player") ~= nil
-        -- Always start hidden — player must type /mbt to show,
-        -- unless showInRaidOnly is checked and they're already in a raid.
         if MeggicBuffTrackerDB.showInRaidOnly and UnitInRaid("player") then
             frame:Show()
         else
@@ -1077,7 +1101,6 @@ eventFrame:SetScript("OnEvent", function()
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         wasInRaid = UnitInRaid("player") ~= nil
-        -- Don't auto-show on zone transitions unless raid-only is active and we're in a raid
         if MeggicBuffTrackerDB.showInRaidOnly and UnitInRaid("player") then
             frame:Show()
         end
