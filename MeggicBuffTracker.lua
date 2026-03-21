@@ -75,6 +75,14 @@ local buffAliases = {
     ["Gift of the Wild"]              = "Mark of the Wild",
     ["Flask of Supreme Power"]        = "Supreme Power",
     ["Supreme Power"]                 = "Flask of Supreme Power",
+    ["Danonzo's Tel'Abim Delight"]    = "Well Fed",
+    ["Danonzo's Tel'Abim Medley"]     = "Well Fed",
+    ["Danonzo's Tel'Abim Surprise"]   = "Well Fed",
+    ["Well Fed"]                      = "Danonzo's Tel'Abim Delight",
+    ["Cerebral Cortex Compound"]      = "Infallible Mind",
+    ["Infallible Mind"]               = "Cerebral Cortex Compound",
+    ["Elixir of Greater Arcane Power"] = "Greater Arcane Power",
+    ["Greater Arcane Power"]          = "Elixir of Greater Arcane Power",
 }
 
 local buffReagents = {
