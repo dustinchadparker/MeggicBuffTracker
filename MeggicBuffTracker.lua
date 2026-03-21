@@ -73,6 +73,8 @@ local buffAliases = {
     ["Arcane Brilliance"]             = "Arcane Intellect",
     ["Mark of the Wild"]              = "Gift of the Wild",
     ["Gift of the Wild"]              = "Mark of the Wild",
+    ["Flask of Supreme Power"]        = "Supreme Power",
+    ["Supreme Power"]                 = "Flask of Supreme Power",
 }
 
 local buffReagents = {
