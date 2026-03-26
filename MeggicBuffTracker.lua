@@ -146,13 +146,15 @@ scanTip:SetOwner(UIParent, "ANCHOR_NONE")
 
 local function BuildBuffTimeMap()
     local iconToTime = {}
-    for i = 0, 31 do
+    for i = 0, 39 do
         local buffId = GetPlayerBuff(i, "HELPFUL|HARMFUL|PASSIVE")
         if buffId and buffId > -1 then
             local timeLeft = GetPlayerBuffTimeLeft(buffId)
             local icon = GetPlayerBuffTexture(buffId)
             if icon then
+                -- Store both the raw path and lowercase version to handle case mismatches
                 iconToTime[strlower(icon)] = timeLeft
+                iconToTime[icon] = timeLeft
             end
         end
     end
@@ -165,7 +167,9 @@ local function BuildBuffTimeMap()
         local line1 = getglobal("MeggicScanTooltipTextLeft1")
         local name  = line1 and line1:GetText() or ""
         if name ~= "" then
+            -- Try lowercase match first, then raw
             local timeLeft = iconToTime[strlower(icon)]
+            if timeLeft == nil then timeLeft = iconToTime[icon] end
             if timeLeft ~= nil then
                 map[strlower(name)] = timeLeft
             end
