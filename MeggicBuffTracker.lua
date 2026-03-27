@@ -114,13 +114,32 @@ local buffReagents = {
     ["Mark of the Wild"]  = { item = "Wild Berries",  class = "DRUID" },
     ["Gift of the Wild"]  = { item = "Wild Berries",  class = "DRUID" },
 }
-
+-- For buffs that share the same tooltip name, map their icon path to the
+-- tracked buff name so the timer map can distinguish them.
+local iconAliases = {
+    ["interface\\icons\\inv_potion_45"]              = "Mageblood Potion",
+    ["interface\\icons\\spell_nature_manaregentotem"] = "Nightfin Soup",
+}
 -----------------------------
 -- BUFF DETECTION
 -----------------------------
 local function IsBuffActive(buff)
     if buff.actionType == "weapon" then
         return GetWeaponEnchantInfo() and true or false
+    end
+    -- Check if this buff has an icon alias (shared tooltip name with another buff)
+    -- If so, verify by icon rather than name to avoid false positives
+    local buffNameLower = strlower(buff.name)
+    for iconPath, trackedName in pairs(iconAliases) do
+        if strlower(trackedName) == buffNameLower then
+            -- This buff is icon-disambiguated — scan UnitBuff slots for matching icon
+            for i = 1, 32 do
+                local icon = UnitBuff("player", i)
+                if not icon then break end
+                if strlower(icon) == iconPath then return true end
+            end
+            return false
+        end
     end
     if buffed(buff.name) then return true end
     local alias = buffAliases[buff.name]
@@ -152,7 +171,6 @@ local function BuildBuffTimeMap()
             local timeLeft = GetPlayerBuffTimeLeft(buffId)
             local icon = GetPlayerBuffTexture(buffId)
             if icon then
-                -- Store both the raw path and lowercase version to handle case mismatches
                 iconToTime[strlower(icon)] = timeLeft
                 iconToTime[icon] = timeLeft
             end
@@ -167,16 +185,23 @@ local function BuildBuffTimeMap()
         local line1 = getglobal("MeggicScanTooltipTextLeft1")
         local name  = line1 and line1:GetText() or ""
         if name ~= "" then
-            -- Try lowercase match first, then raw
             local timeLeft = iconToTime[strlower(icon)]
             if timeLeft == nil then timeLeft = iconToTime[icon] end
             if timeLeft ~= nil then
-                map[strlower(name)] = timeLeft
+                -- If this icon has a specific alias, use that as the key
+                -- instead of the tooltip name (handles shared buff names)
+                local iconKey = iconAliases[strlower(icon)]
+                if iconKey then
+                    map[strlower(iconKey)] = timeLeft
+                else
+                    map[strlower(name)] = timeLeft
+                end
             end
         end
     end
     return map
 end
+
 
 local function GetBuffTimeLeft(buffMap, buffName)
     local t = buffMap[strlower(buffName)]
