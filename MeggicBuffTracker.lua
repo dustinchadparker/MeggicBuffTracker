@@ -88,6 +88,8 @@ local buffAliases = {
     ["Infallible Mind"]               = "Cerebral Cortex Compound",
     ["Elixir of Greater Arcane Power"] = "Greater Arcane Power",
     ["Greater Arcane Power"]          = "Elixir of Greater Arcane Power",
+    ["Distilled Wisdom"]          = "Flask of Distilled Wisdom",
+    ["Flask of Distilled Wisdom"]          = "Distilled Wisdom",
 }
 
 local buffReagents = {
