@@ -1,4 +1,4 @@
-MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false }
+MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false, isCollapsed = false }
 local trackedBuffs = {}
 local configFrame
 
@@ -664,6 +664,7 @@ collapseBtn:SetScript("OnClick", function()
     local total = table.getn(trackedBuffs)
     if total <= COLLAPSE_ROWS then return end
     isCollapsed = not isCollapsed
+    MeggicBuffTrackerDB.isCollapsed = isCollapsed
     RefreshTrackerRows()
 end)
 collapseBtn:SetScript("OnEnter", function()
@@ -1140,7 +1141,9 @@ eventFrame:SetScript("OnEvent", function()
         MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false }
         if MeggicBuffTrackerDB.showInRaidOnly == nil then MeggicBuffTrackerDB.showInRaidOnly = false end
         if MeggicBuffTrackerDB.solidMissingBar == nil then MeggicBuffTrackerDB.solidMissingBar = false end
+        if MeggicBuffTrackerDB.isCollapsed     == nil then MeggicBuffTrackerDB.isCollapsed = false end
         if MeggicBuffTrackerDB.width          == nil then MeggicBuffTrackerDB.width = 250 end
+        isCollapsed = MeggicBuffTrackerDB.isCollapsed
         trackedBuffs = MeggicBuffTrackerDB.buffs or {}
         MeggicBuffTrackerDB.buffs = trackedBuffs
         if MeggicBuffTrackerDB.x and MeggicBuffTrackerDB.y then
@@ -1160,6 +1163,7 @@ eventFrame:SetScript("OnEvent", function()
     elseif event == "PLAYER_LOGOUT" then
         MeggicBuffTrackerDB.buffs = trackedBuffs
         MeggicBuffTrackerDB.width = frame:GetWidth()
+        MeggicBuffTrackerDB.isCollapsed = isCollapsed
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         wasInRaid = UnitInRaid("player") ~= nil
