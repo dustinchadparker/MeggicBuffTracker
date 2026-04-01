@@ -567,45 +567,61 @@ local function RefreshTrackerRows()
             row.status:SetJustifyH("RIGHT")
 
             row:RegisterForDrag("LeftButton")
+            row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
             row:SetScript("OnDragStart", function()
                 dragIndex = this.buffIndex
                 this.label:SetTextColor(0.5, 0.5, 0.5)
                 this.status:SetTextColor(0.5, 0.5, 0.5)
             end)
+
+            -- INSERT behaviour: remove from old position, insert above target row
             row:SetScript("OnDragStop", function()
                 if dragIndex then
                     local target = GetRowAtCursor()
                     if target and target ~= dragIndex then
-                        local tmp = trackedBuffs[dragIndex]
-                        trackedBuffs[dragIndex] = trackedBuffs[target]
-                        trackedBuffs[target]    = tmp
+                        local moving = trackedBuffs[dragIndex]
+                        table.remove(trackedBuffs, dragIndex)
+                        -- If we dragged downward, the target index shifted up by 1 after removal
+                        local insertAt = target
+                        if dragIndex < target then
+                            insertAt = target - 1
+                        end
+                        table.insert(trackedBuffs, insertAt, moving)
                         MeggicBuffTrackerDB.buffs = trackedBuffs
                     end
                     dragIndex = nil
                     RefreshTrackerRows()
                 end
             end)
+
+            -- Left-click = shift-remove only; Right-click = cast/use
             row:SetScript("OnClick", function()
                 local idx = this.buffIndex
                 local b   = this.buff
-                if IsShiftKeyDown() then
-                    local removedName = b.name
-                    table.remove(trackedBuffs, idx)
-                    MeggicBuffTrackerDB.buffs = trackedBuffs
-                    RefreshTrackerRows()
-                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Removed " .. removedName)
-                elseif this.missing or (this.remaining and this.remaining < 120) then
-                    if b.actionType == "spell" and b.action ~= "" then
-                        CastSpellByName(b.action)
-                    elseif b.actionType == "item" and b.action ~= "" then
-                        UseItemFromBags(b.action)
-                    elseif b.actionType == "weapon" and b.action ~= "" then
-                        if UseItemFromBags(b.action) then PickupInventoryItem(16) end
-                    else
-                        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r No action defined for " .. b.name)
+                if arg1 == "LeftButton" then
+                    if IsShiftKeyDown() then
+                        local removedName = b.name
+                        table.remove(trackedBuffs, idx)
+                        MeggicBuffTrackerDB.buffs = trackedBuffs
+                        RefreshTrackerRows()
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Removed " .. removedName)
+                    end
+                elseif arg1 == "RightButton" then
+                    if this.missing or (this.remaining and this.remaining < 120) then
+                        if b.actionType == "spell" and b.action ~= "" then
+                            CastSpellByName(b.action)
+                        elseif b.actionType == "item" and b.action ~= "" then
+                            UseItemFromBags(b.action)
+                        elseif b.actionType == "weapon" and b.action ~= "" then
+                            if UseItemFromBags(b.action) then PickupInventoryItem(16) end
+                        else
+                            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r No action defined for " .. b.name)
+                        end
                     end
                 end
             end)
+
             row:SetScript("OnEnter", function()
                 local b = this.buff
                 GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
@@ -624,9 +640,9 @@ local function RefreshTrackerRows()
                     end
                 end
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("Left-click to cast/use", 0.7, 0.7, 0.7)
-                GameTooltip:AddLine("Shift-click to remove",  0.7, 0.7, 0.7)
-                GameTooltip:AddLine("Drag to reorder",        0.7, 0.7, 0.7)
+                GameTooltip:AddLine("Right-click to cast/use", 0.7, 0.7, 0.7)
+                GameTooltip:AddLine("Shift-click to remove",   0.7, 0.7, 0.7)
+                GameTooltip:AddLine("Drag to reorder",         0.7, 0.7, 0.7)
                 GameTooltip:Show()
             end)
             row:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -686,7 +702,7 @@ collapseBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 -----------------------------
 configFrame = CreateFrame("Frame", "MeggicBuffTrackerConfig", UIParent)
 configFrame:SetWidth(330)
-configFrame:SetHeight(255)  -- slightly taller to fit second option row
+configFrame:SetHeight(255)
 configFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 configFrame:SetBackdrop({
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -955,7 +971,6 @@ raidOnlySep:SetPoint("TOP", configFrame, "TOP", 0, -165)
 raidOnlySep:SetText("--- Options ---")
 raidOnlySep:SetTextColor(0.5, 0.5, 0.5)
 
--- Shared helper to build the little bordered checkbox look
 local function MakeCheckbox(parent, yOffset)
     local btn = CreateFrame("Button", nil, parent)
     btn:SetWidth(14); btn:SetHeight(14)
@@ -963,17 +978,16 @@ local function MakeCheckbox(parent, yOffset)
     btn.bg = btn:CreateTexture(nil, "BACKGROUND")
     btn.bg:SetAllPoints(btn)
     btn.bg:SetTexture(0.15, 0.15, 0.15, 1)
-    -- thin red border
     local function Edge(a1, p1, a2, p2, w, h)
         local t = btn:CreateTexture(nil, "BORDER")
         t:SetPoint(a1, btn, p1, 0, 0)
         t:SetPoint(a2, btn, p2, w, h)
         t:SetTexture(0.8, 0.1, 0.1, 1)
     end
-    Edge("TOPLEFT","TOPLEFT","BOTTOMRIGHT","TOPRIGHT",   0, -1)  -- top
-    Edge("TOPLEFT","BOTTOMLEFT","BOTTOMRIGHT","BOTTOMRIGHT", 0, 1) -- bottom
-    Edge("TOPLEFT","TOPLEFT","BOTTOMRIGHT","BOTTOMLEFT", 1,  0)  -- left
-    Edge("TOPLEFT","TOPRIGHT","BOTTOMRIGHT","BOTTOMRIGHT",-1, 0) -- right
+    Edge("TOPLEFT","TOPLEFT","BOTTOMRIGHT","TOPRIGHT",   0, -1)
+    Edge("TOPLEFT","BOTTOMLEFT","BOTTOMRIGHT","BOTTOMRIGHT", 0, 1)
+    Edge("TOPLEFT","TOPLEFT","BOTTOMRIGHT","BOTTOMLEFT", 1,  0)
+    Edge("TOPLEFT","TOPRIGHT","BOTTOMRIGHT","BOTTOMRIGHT",-1, 0)
     btn.check = btn:CreateTexture(nil, "OVERLAY")
     btn.check:SetAllPoints(btn)
     btn.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
@@ -981,7 +995,6 @@ local function MakeCheckbox(parent, yOffset)
     return btn
 end
 
--- Option 1: Show only in raid
 local raidOnlyBtn = MakeCheckbox(configFrame, -185)
 raidOnlyBtn.check:SetAlpha(MeggicBuffTrackerDB.showInRaidOnly and 1 or 0)
 
@@ -1000,7 +1013,6 @@ raidOnlyBtn:SetScript("OnClick", function()
     end
 end)
 
--- Option 2: Solid red bar instead of blinking
 local solidBarBtn = MakeCheckbox(configFrame, -205)
 solidBarBtn.check:SetAlpha(MeggicBuffTrackerDB.solidMissingBar and 1 or 0)
 
@@ -1012,7 +1024,6 @@ solidBarLabel:SetTextColor(0.9, 0.9, 0.9)
 solidBarBtn:SetScript("OnClick", function()
     MeggicBuffTrackerDB.solidMissingBar = not MeggicBuffTrackerDB.solidMissingBar
     this.check:SetAlpha(MeggicBuffTrackerDB.solidMissingBar and 1 or 0)
-    -- Immediately apply to any currently-missing rows
     for i = 1, table.getn(rows) do
         local row = rows[i]
         if row and row:IsShown() and row.missing then
@@ -1093,7 +1104,6 @@ frame:SetScript("OnUpdate", function()
                     row.status:SetTextColor(1, 0, 0)
                     row.label:SetTextColor(1, 0.3, 0.3)
                     row.missing = true
-                    -- Set initial glow state based on current mode
                     if MeggicBuffTrackerDB.solidMissingBar then
                         row.glow:SetTexture(1, 0, 0, 0.35)
                         row.glowAlpha = 0.35
@@ -1102,15 +1112,12 @@ frame:SetScript("OnUpdate", function()
             end
         end
     end
-    -- Glow / solid bar animation for missing buffs
     for i = 1, table.getn(rows) do
         local row = rows[i]
         if row:IsShown() and row.missing then
             if MeggicBuffTrackerDB.solidMissingBar then
-                -- Solid mode: keep at fixed alpha, no animation needed
                 row.glow:SetTexture(1, 0, 0, 0.35)
             else
-                -- Blink mode: animate alpha
                 row.glowAlpha = row.glowAlpha + (row.glowDir * arg1 * 2)
                 if row.glowAlpha >= 0.4 then
                     row.glowDir  = -1
@@ -1201,6 +1208,7 @@ SlashCmdList["MEGGICBUFFTRACKER"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("Resize: drag the right edge of the tracker.")
         DEFAULT_CHAT_FRAME:AddMessage("Buff names must match spell/item names exactly.")
         DEFAULT_CHAT_FRAME:AddMessage("Shift+Click a row to remove it. Drag to reorder.")
+        DEFAULT_CHAT_FRAME:AddMessage("Right+Click a row to cast/use the buff.")
         DEFAULT_CHAT_FRAME:AddMessage("[-]/[+] button collapses/expands the list to " .. COLLAPSE_ROWS .. " rows.")
     elseif msg == "config" then
         if configFrame:IsShown() then configFrame:Hide() else configFrame:Show() end
