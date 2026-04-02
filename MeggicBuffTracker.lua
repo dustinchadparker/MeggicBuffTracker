@@ -90,6 +90,7 @@ local buffAliases = {
     ["Greater Arcane Power"]          = "Elixir of Greater Arcane Power",
     ["Distilled Wisdom"]          = "Flask of Distilled Wisdom",
     ["Flask of Distilled Wisdom"]          = "Distilled Wisdom",
+    ["Ground Scorpok Assay"] = "Strike of the Scorpok"
 }
 
 local buffReagents = {
