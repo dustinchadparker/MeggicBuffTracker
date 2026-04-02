@@ -81,7 +81,7 @@ local buffAliases = {
     ["Nightfin Soup"]                 = "Well Fed",
     ["Sagefish Delight"]              = "Well Fed",
     ["Grilled Squid"]                 = "Well Fed",
-    ["Medivh's Merlot Blue"]    = "Well Fed",
+    ["Medivh's Merlot Blue"] = "Medivh's Merlot Blue Label",
     ["Squid Eel Skewer"]              = "Well Fed",
     ["Well Fed"]                      = "Danonzo's Tel'Abim Delight",
     ["Cerebral Cortex Compound"]      = "Infallible Mind",
@@ -255,7 +255,7 @@ local buffTemplates = {
             { name = "Sagefish Delight",               duration = 15*60,  actionType = "item",  action = "Sagefish Delight" },
             { name = "Danonzo's Tel'Abim Delight",     duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
             { name = "Cerebral Cortex Compound",       duration = 60*60,  actionType = "item",  action = "Cerebral Cortex Compound" },
-            { name = "Medivh's Merlot Blue",     duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue" },
+            { name = "Medivh's Merlot Blue Label", duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue" },
             { name = "Emerald Blessing",               duration = 60*60,  actionType = "spell", action = "Emerald Blessing" },
             { name = "Mageblood Potion",               duration = 60*60,  actionType = "item",  action = "Mageblood Potion" },
             { name = "Elixir of the Sages",            duration = 60*60,  actionType = "item",  action = "Elixir of the Sages" },
@@ -369,7 +369,7 @@ local buffTemplates = {
             { name = "Hardened Mushroom",                  duration = 15*60,  actionType = "item",  action = "Hardened Mushroom" },
             { name = "Sagefish Delight",                   duration = 15*60,  actionType = "item",  action = "Sagefish Delight" },
             { name = "Danonzo's Tel'Abim Delight",         duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
-            { name = "Medivh's Merlot Blue",         duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue" },
+            { name = "Medivh's Merlot Blue Label", duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue" },
             { name = "Danonzo's Tel'Abim Medley",          duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Medley" },
             { name = "Danonzo's Tel'Abim Surprise",        duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Surprise" },
             { name = "Nightfin Soup",                      duration = 10*60,  actionType = "item",  action = "Nightfin Soup" },
@@ -1208,7 +1208,6 @@ SlashCmdList["MEGGICBUFFTRACKER"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("Resize: drag the right edge of the tracker.")
         DEFAULT_CHAT_FRAME:AddMessage("Buff names must match spell/item names exactly.")
         DEFAULT_CHAT_FRAME:AddMessage("Shift+Click a row to remove it. Drag to reorder.")
-        DEFAULT_CHAT_FRAME:AddMessage("Right+Click a row to cast/use the buff.")
         DEFAULT_CHAT_FRAME:AddMessage("[-]/[+] button collapses/expands the list to " .. COLLAPSE_ROWS .. " rows.")
     elseif msg == "config" then
         if configFrame:IsShown() then configFrame:Hide() else configFrame:Show() end
