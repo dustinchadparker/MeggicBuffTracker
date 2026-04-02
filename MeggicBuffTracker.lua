@@ -123,6 +123,16 @@ local iconAliases = {
     ["interface\\icons\\inv_potion_45"]              = "Mageblood Potion",
     ["interface\\icons\\spell_nature_manaregentotem"] = "Nightfin Soup",
 }
+
+-----------------------------
+-- BUFF CHAT ACTIONS
+-----------------------------
+-- For buffs where right-clicking should send a chat message instead of casting.
+-- Each entry: { say = "message", party = "message" }
+-- Either key can be omitted to skip that channel.
+local buffChatActions = {
+    ["Windfury Totem Effect"] = { party = "WF Totem plz" },
+}
 -----------------------------
 -- BUFF DETECTION
 -----------------------------
@@ -609,7 +619,11 @@ local function RefreshTrackerRows()
                         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Removed " .. removedName)
                     end
                 elseif arg1 == "RightButton" then
-                    if this.missing or (this.remaining and this.remaining < 120) then
+                    local chatAction = buffChatActions[b.name]
+                    if chatAction then
+                        if chatAction.say   then SendChatMessage(chatAction.say,   "SAY")   end
+                        if chatAction.party then SendChatMessage(chatAction.party, "PARTY") end
+                    elseif this.missing or (this.remaining and this.remaining < 120) then
                         if b.actionType == "spell" and b.action ~= "" then
                             CastSpellByName(b.action)
                         elseif b.actionType == "item" and b.action ~= "" then
