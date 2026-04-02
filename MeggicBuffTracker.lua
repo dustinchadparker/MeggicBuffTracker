@@ -623,7 +623,7 @@ local function RefreshTrackerRows()
                     if chatAction then
                         if chatAction.say   then SendChatMessage(chatAction.say,   "SAY")   end
                         if chatAction.party then SendChatMessage(chatAction.party, "PARTY") end
-                    elseif this.missing or (this.remaining and this.remaining < 120) then
+                    elseif this.missing or (this.remaining and this.remaining < 300) then
                         if b.actionType == "spell" and b.action ~= "" then
                             CastSpellByName(b.action)
                         elseif b.actionType == "item" and b.action ~= "" then
@@ -1276,6 +1276,7 @@ SlashCmdList["MEGGICBUFFTRACKER"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("Resize: drag the right edge of the tracker.")
         DEFAULT_CHAT_FRAME:AddMessage("Buff names must match spell/item names exactly.")
         DEFAULT_CHAT_FRAME:AddMessage("Shift+Click a row to remove it. Drag to reorder.")
+        DEFAULT_CHAT_FRAME:AddMessage("Right+Click a row to recast it if missing or <5min remaining.")
         DEFAULT_CHAT_FRAME:AddMessage("[-]/[+] button collapses/expands the list to " .. COLLAPSE_ROWS .. " rows.")
     elseif msg == "config" then
         if configFrame:IsShown() then configFrame:Hide() else configFrame:Show() end
