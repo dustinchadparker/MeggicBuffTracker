@@ -1,4 +1,4 @@
-MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false, isCollapsed = false }
+MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false, isCollapsed = false, collapseRows = 5 }
 local trackedBuffs = {}
 local configFrame
 
@@ -464,7 +464,7 @@ cogBtn:SetScript("OnLeave", function()
 end)
 
 local isCollapsed   = false
-local COLLAPSE_ROWS = 10
+local COLLAPSE_ROWS = 5
 
 local collapseBtn = CreateFrame("Button", "MeggicBuffTrackerCollapseBtn", frame)
 collapseBtn:SetWidth(20)
@@ -702,7 +702,7 @@ collapseBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 -----------------------------
 configFrame = CreateFrame("Frame", "MeggicBuffTrackerConfig", UIParent)
 configFrame:SetWidth(330)
-configFrame:SetHeight(255)
+configFrame:SetHeight(285)
 configFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 configFrame:SetBackdrop({
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -1038,6 +1038,55 @@ solidBarBtn:SetScript("OnClick", function()
     end
 end)
 
+-- Collapse rows input
+local collapseRowsLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+collapseRowsLabel:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -228)
+collapseRowsLabel:SetText("Collapse [-] to rows:")
+collapseRowsLabel:SetTextColor(0.9, 0.9, 0.9)
+
+local collapseRowsInput = CreateFrame("EditBox", "MeggicCollapseRowsInput", configFrame, "InputBoxTemplate")
+collapseRowsInput:SetWidth(40)
+collapseRowsInput:SetHeight(20)
+collapseRowsInput:SetPoint("LEFT", collapseRowsLabel, "RIGHT", 6, 0)
+collapseRowsInput:SetAutoFocus(false)
+collapseRowsInput:SetNumeric(true)
+collapseRowsInput:SetMaxLetters(3)
+collapseRowsInput:SetText(tostring(MeggicBuffTrackerDB.collapseRows or 5))
+collapseRowsInput:SetScript("OnEnterPressed", function()
+    local val = tonumber(this:GetText())
+    if val and val >= 1 then
+        COLLAPSE_ROWS = val
+        MeggicBuffTrackerDB.collapseRows = val
+        RefreshTrackerRows()
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Collapse row count set to " .. val .. ".")
+    else
+        this:SetText(tostring(COLLAPSE_ROWS))
+    end
+    this:ClearFocus()
+end)
+collapseRowsInput:SetScript("OnEscapePressed", function()
+    this:SetText(tostring(COLLAPSE_ROWS))
+    this:ClearFocus()
+end)
+
+local collapseRowsApplyBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
+collapseRowsApplyBtn:SetWidth(50)
+collapseRowsApplyBtn:SetHeight(20)
+collapseRowsApplyBtn:SetPoint("LEFT", collapseRowsInput, "RIGHT", 4, 0)
+collapseRowsApplyBtn:SetText("Apply")
+collapseRowsApplyBtn:SetScript("OnClick", function()
+    local val = tonumber(collapseRowsInput:GetText())
+    if val and val >= 1 then
+        COLLAPSE_ROWS = val
+        MeggicBuffTrackerDB.collapseRows = val
+        RefreshTrackerRows()
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Collapse row count set to " .. val .. ".")
+    else
+        collapseRowsInput:SetText(tostring(COLLAPSE_ROWS))
+    end
+    collapseRowsInput:ClearFocus()
+end)
+
 local helpText = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 helpText:SetPoint("BOTTOM", configFrame, "BOTTOM", 0, 15)
 helpText:SetText("Shift+Click a row to remove  |  Drag to reorder")
@@ -1046,6 +1095,7 @@ helpText:SetTextColor(0.7, 0.7, 0.7)
 configFrame:SetScript("OnShow", function()
     raidOnlyBtn.check:SetAlpha(MeggicBuffTrackerDB.showInRaidOnly and 1 or 0)
     solidBarBtn.check:SetAlpha(MeggicBuffTrackerDB.solidMissingBar and 1 or 0)
+    collapseRowsInput:SetText(tostring(COLLAPSE_ROWS))
 end)
 configFrame:SetScript("OnHide", function()
     dropList:Hide()
@@ -1150,7 +1200,10 @@ eventFrame:SetScript("OnEvent", function()
         if MeggicBuffTrackerDB.solidMissingBar == nil then MeggicBuffTrackerDB.solidMissingBar = false end
         if MeggicBuffTrackerDB.isCollapsed     == nil then MeggicBuffTrackerDB.isCollapsed = false end
         if MeggicBuffTrackerDB.width          == nil then MeggicBuffTrackerDB.width = 250 end
+        if MeggicBuffTrackerDB.collapseRows   == nil then MeggicBuffTrackerDB.collapseRows = 5 end
         isCollapsed = MeggicBuffTrackerDB.isCollapsed
+        COLLAPSE_ROWS = MeggicBuffTrackerDB.collapseRows
+        collapseRowsInput:SetText(tostring(COLLAPSE_ROWS))
         trackedBuffs = MeggicBuffTrackerDB.buffs or {}
         MeggicBuffTrackerDB.buffs = trackedBuffs
         if MeggicBuffTrackerDB.x and MeggicBuffTrackerDB.y then
