@@ -1,5 +1,6 @@
-MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false, isCollapsed = false, collapseRows = 5 }
+MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, petBuffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false, isCollapsed = false, collapseRows = 5 }
 local trackedBuffs = {}
+local trackedPetBuffs = {}
 local configFrame
 
 local _, playerClass = UnitClass("player")
@@ -81,16 +82,16 @@ local buffAliases = {
     ["Nightfin Soup"]                 = "Well Fed",
     ["Sagefish Delight"]              = "Well Fed",
     ["Grilled Squid"]                 = "Well Fed",
-    ["Medivh's Merlot Blue"] = "Medivh's Merlot Blue Label",
+    ["Medivh's Merlot Blue"]          = "Medivh's Merlot Blue Label",
     ["Squid Eel Skewer"]              = "Well Fed",
     ["Well Fed"]                      = "Danonzo's Tel'Abim Delight",
     ["Cerebral Cortex Compound"]      = "Infallible Mind",
     ["Infallible Mind"]               = "Cerebral Cortex Compound",
     ["Elixir of Greater Arcane Power"] = "Greater Arcane Power",
     ["Greater Arcane Power"]          = "Elixir of Greater Arcane Power",
-    ["Distilled Wisdom"]          = "Flask of Distilled Wisdom",
-    ["Flask of Distilled Wisdom"]          = "Distilled Wisdom",
-    ["Ground Scorpok Assay"] = "Strike of the Scorpok"
+    ["Distilled Wisdom"]              = "Flask of Distilled Wisdom",
+    ["Flask of Distilled Wisdom"]     = "Distilled Wisdom",
+    ["Ground Scorpok Assay"]          = "Strike of the Scorpok",
 }
 
 local buffReagents = {
@@ -117,6 +118,7 @@ local buffReagents = {
     ["Mark of the Wild"]  = { item = "Wild Berries",  class = "DRUID" },
     ["Gift of the Wild"]  = { item = "Wild Berries",  class = "DRUID" },
 }
+
 -- For buffs that share the same tooltip name, map their icon path to the
 -- tracked buff name so the timer map can distinguish them.
 local iconAliases = {
@@ -131,8 +133,9 @@ local iconAliases = {
 -- Each entry: { say = "message", party = "message" }
 -- Either key can be omitted to skip that channel.
 local buffChatActions = {
-    ["Windfury Totem Effect"] = { party = "WF Totem plz" },
+    ["Windfury Totem Effect"] = { say = "WF Totem plz", party = "WF Totem plz" },
 }
+
 -----------------------------
 -- BUFF DETECTION
 -----------------------------
@@ -140,12 +143,9 @@ local function IsBuffActive(buff)
     if buff.actionType == "weapon" then
         return GetWeaponEnchantInfo() and true or false
     end
-    -- Check if this buff has an icon alias (shared tooltip name with another buff)
-    -- If so, verify by icon rather than name to avoid false positives
     local buffNameLower = strlower(buff.name)
     for iconPath, trackedName in pairs(iconAliases) do
         if strlower(trackedName) == buffNameLower then
-            -- This buff is icon-disambiguated — scan UnitBuff slots for matching icon
             for i = 1, 32 do
                 local icon = UnitBuff("player", i)
                 if not icon then break end
@@ -160,6 +160,40 @@ local function IsBuffActive(buff)
     return false
 end
 
+-- Check whether a named buff is active on the pet, and return time remaining
+local function GetPetBuffTimeLeft(buffName)
+    if not UnitExists("pet") then return false, nil end
+    local nameLower = strlower(buffName)
+    for i = 1, 40 do
+        local icon = UnitBuff("pet", i)
+        if not icon then break end
+        -- use scanTip to get the buff name on the pet
+        scanTip:ClearLines()
+        scanTip:SetUnitBuff("pet", i)
+        local line1 = getglobal("MeggicScanTooltipTextLeft1")
+        local name  = line1 and line1:GetText() or ""
+        if strlower(name) == nameLower then
+            -- find time via GetPlayerBuff loop — for pet we use icon match
+            -- pet buff times aren't directly exposed; we read from the tooltip's
+            -- second line which shows "X sec remaining" in vanilla
+            local line2 = getglobal("MeggicScanTooltipTextLeft2")
+            local text2 = line2 and line2:GetText() or ""
+            -- try to parse "X sec remaining" or "X min, Y sec remaining"
+            local mins, secs = string.match(text2, "(%d+) min, (%d+) sec")
+            if mins then
+                return true, (tonumber(mins) * 60 + tonumber(secs))
+            end
+            local s = string.match(text2, "(%d+) sec")
+            if s then return true, tonumber(s) end
+            local m = string.match(text2, "(%d+) min")
+            if m then return true, tonumber(m) * 60 end
+            -- buff exists but no timer visible (permanent/passive)
+            return true, nil
+        end
+    end
+    return false, nil
+end
+
 local function IsAlreadyTracked(name)
     local alias = buffAliases[name]
     for i = 1, table.getn(trackedBuffs) do
@@ -168,6 +202,13 @@ local function IsAlreadyTracked(name)
         if alias and n == alias then return true, n end
     end
     return false, nil
+end
+
+local function IsAlreadyTrackedPet(name)
+    for i = 1, table.getn(trackedPetBuffs) do
+        if trackedPetBuffs[i].name == name then return true end
+    end
+    return false
 end
 
 -----------------------------
@@ -201,8 +242,6 @@ local function BuildBuffTimeMap()
             local timeLeft = iconToTime[strlower(icon)]
             if timeLeft == nil then timeLeft = iconToTime[icon] end
             if timeLeft ~= nil then
-                -- If this icon has a specific alias, use that as the key
-                -- instead of the tooltip name (handles shared buff names)
                 local iconKey = iconAliases[strlower(icon)]
                 if iconKey then
                     map[strlower(iconKey)] = timeLeft
@@ -214,7 +253,6 @@ local function BuildBuffTimeMap()
     end
     return map
 end
-
 
 local function GetBuffTimeLeft(buffMap, buffName)
     local t = buffMap[strlower(buffName)]
@@ -266,7 +304,7 @@ local buffTemplates = {
             { name = "Sagefish Delight",               duration = 15*60,  actionType = "item",  action = "Sagefish Delight" },
             { name = "Danonzo's Tel'Abim Delight",     duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
             { name = "Cerebral Cortex Compound",       duration = 60*60,  actionType = "item",  action = "Cerebral Cortex Compound" },
-            { name = "Medivh's Merlot Blue Label", duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue" },
+            { name = "Medivh's Merlot Blue Label",     duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue" },
             { name = "Emerald Blessing",               duration = 60*60,  actionType = "spell", action = "Emerald Blessing" },
             { name = "Mageblood Potion",               duration = 60*60,  actionType = "item",  action = "Mageblood Potion" },
             { name = "Elixir of the Sages",            duration = 60*60,  actionType = "item",  action = "Elixir of the Sages" },
@@ -380,7 +418,7 @@ local buffTemplates = {
             { name = "Hardened Mushroom",                  duration = 15*60,  actionType = "item",  action = "Hardened Mushroom" },
             { name = "Sagefish Delight",                   duration = 15*60,  actionType = "item",  action = "Sagefish Delight" },
             { name = "Danonzo's Tel'Abim Delight",         duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Delight" },
-            { name = "Medivh's Merlot Blue Label", duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue" },
+            { name = "Medivh's Merlot Blue Label",         duration = 15*60,  actionType = "item",  action = "Medivh's Merlot Blue" },
             { name = "Danonzo's Tel'Abim Medley",          duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Medley" },
             { name = "Danonzo's Tel'Abim Surprise",        duration = 15*60,  actionType = "item",  action = "Danonzo's Tel'Abim Surprise" },
             { name = "Nightfin Soup",                      duration = 10*60,  actionType = "item",  action = "Nightfin Soup" },
@@ -511,8 +549,6 @@ end)
 resizeGrip:SetScript("OnMouseDown", function() frame:StartSizing("RIGHT") end)
 resizeGrip:SetScript("OnMouseUp", function()
     frame:StopMovingOrSizing()
-    local numBuffs = table.getn(trackedBuffs)
-    frame:SetHeight(numBuffs == 0 and 50 or 30 + (numBuffs * 18))
     MeggicBuffTrackerDB.width = frame:GetWidth()
 end)
 
@@ -521,6 +557,17 @@ end)
 -----------------------------
 local rows      = {}
 local dragIndex = nil
+
+-- Pet section: divider frame + pet rows
+local petDivider = CreateFrame("Frame", nil, frame)
+petDivider:SetHeight(45)
+local petDividerText = petDivider:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+petDividerText:SetAllPoints(petDivider)
+petDividerText:SetJustifyH("CENTER")
+petDividerText:SetText("|cffffff00-- Pet Buffs --|r")
+
+local petRows = {}
+local RefreshTrackerRows  -- forward declaration so MakePetRow closures can call it
 
 local function GetRowAtCursor()
     for i = 1, table.getn(trackedBuffs) do
@@ -544,12 +591,85 @@ local function VisibleRowCount()
     return total
 end
 
-local function RefreshTrackerRows()
+local function MakePetRow(i)
+    local row = CreateFrame("Button", "MeggicPetBuffRow" .. i, frame)
+    row:SetHeight(16)
+    row.glow = row:CreateTexture(nil, "BACKGROUND")
+    row.glow:SetAllPoints(row)
+    row.glow:SetTexture(1, 0.5, 0, 0)
+    row.glowAlpha = 0
+    row.glowDir   = 1
+    row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+    row.highlight:SetAllPoints(row)
+    row.highlight:SetTexture(1, 1, 1, 0.15)
+    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.label:SetPoint("LEFT",  row, "LEFT",  6, 0)
+    row.label:SetPoint("RIGHT", row, "RIGHT", -52, 0)
+    row.label:SetJustifyH("LEFT")
+    row.label:SetNonSpaceWrap(false)
+    row.status = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.status:SetPoint("LEFT",  row, "RIGHT", -50, 0)
+    row.status:SetPoint("RIGHT", row, "RIGHT",   0, 0)
+    row.status:SetJustifyH("RIGHT")
+
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    row:SetScript("OnClick", function()
+        local idx = this.petBuffIndex
+        local b   = this.buff
+        if arg1 == "LeftButton" then
+            if IsShiftKeyDown() then
+                local removedName = b.name
+                table.remove(trackedPetBuffs, idx)
+                MeggicBuffTrackerDB.petBuffs = trackedPetBuffs
+                RefreshTrackerRows()
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Removed pet buff " .. removedName)
+            end
+        elseif arg1 == "RightButton" then
+            if not UnitExists("pet") then
+                DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r No pet found.")
+                return
+            end
+            if this.missing or (this.remaining and this.remaining < 120) then
+                TargetUnit("pet")
+                if b.actionType == "spell" and b.action ~= "" then
+                    CastSpellByName(b.action)
+                elseif b.actionType == "item" and b.action ~= "" then
+                    UseItemFromBags(b.action)
+                else
+                    DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r No action defined for " .. b.name)
+                end
+                TargetUnit("player")
+            end
+        end
+    end)
+    row:SetScript("OnEnter", function()
+        local b = this.buff
+        GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+        GameTooltip:SetText((b and b.name or "") .. " (Pet)", 1, 0.7, 0)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Right-click to cast on pet", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Shift-click to remove",      0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return row
+end
+
+RefreshTrackerRows = function()
     for i = 1, table.getn(rows) do rows[i]:Hide() end
+    for i = 1, table.getn(petRows) do petRows[i]:Hide() end
+    petDivider:Hide()
+
     local numBuffs   = table.getn(trackedBuffs)
     local numVisible = VisibleRowCount()
-    frame:SetHeight(numVisible == 0 and 50 or 30 + (numVisible * 18))
+    local numPet     = table.getn(trackedPetBuffs)
+    local hasPet     = numPet > 0
 
+    -- total height: header(30) + player rows + optional pet divider(18) + pet rows
+    local totalRows = numVisible + (hasPet and (1 + numPet) or 0)
+    frame:SetHeight(totalRows == 0 and 50 or 30 + (totalRows * 18))
+
+    -- player buff rows
     for i = 1, numBuffs do
         local buff = trackedBuffs[i]
         local row  = rows[i]
@@ -586,14 +706,12 @@ local function RefreshTrackerRows()
                 this.status:SetTextColor(0.5, 0.5, 0.5)
             end)
 
-            -- INSERT behaviour: remove from old position, insert above target row
             row:SetScript("OnDragStop", function()
                 if dragIndex then
                     local target = GetRowAtCursor()
                     if target and target ~= dragIndex then
                         local moving = trackedBuffs[dragIndex]
                         table.remove(trackedBuffs, dragIndex)
-                        -- If we dragged downward, the target index shifted up by 1 after removal
                         local insertAt = target
                         if dragIndex < target then
                             insertAt = target - 1
@@ -606,7 +724,6 @@ local function RefreshTrackerRows()
                 end
             end)
 
-            -- Left-click = shift-remove only; Right-click = cast/use
             row:SetScript("OnClick", function()
                 local idx = this.buffIndex
                 local b   = this.buff
@@ -623,7 +740,7 @@ local function RefreshTrackerRows()
                     if chatAction then
                         if chatAction.say   then SendChatMessage(chatAction.say,   "SAY")   end
                         if chatAction.party then SendChatMessage(chatAction.party, "PARTY") end
-                    elseif this.missing or (this.remaining and this.remaining < 300) then
+                    elseif this.missing or (this.remaining and this.remaining < 120) then
                         if b.actionType == "spell" and b.action ~= "" then
                             CastSpellByName(b.action)
                         elseif b.actionType == "item" and b.action ~= "" then
@@ -655,7 +772,12 @@ local function RefreshTrackerRows()
                     end
                 end
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("Right-click to cast/use", 0.7, 0.7, 0.7)
+                local chatAct = buffChatActions[b and b.name or ""]
+                if chatAct then
+                    GameTooltip:AddLine("Right-click to request in say/party", 0.7, 0.7, 0.7)
+                else
+                    GameTooltip:AddLine("Right-click to cast/use", 0.7, 0.7, 0.7)
+                end
                 GameTooltip:AddLine("Shift-click to remove",   0.7, 0.7, 0.7)
                 GameTooltip:AddLine("Drag to reorder",         0.7, 0.7, 0.7)
                 GameTooltip:Show()
@@ -677,6 +799,37 @@ local function RefreshTrackerRows()
             row.remaining = buff.duration
             row.glow:SetTexture(1, 0, 0, 0)
             row.glowAlpha = 0
+            row:Show()
+        end
+    end
+
+    -- pet divider + pet rows
+    if hasPet then
+        local dividerY = -8 - (numVisible * 18) - 4
+        petDivider:SetPoint("TOPLEFT",  frame, "TOPLEFT",  5, dividerY)
+        petDivider:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, dividerY)
+        petDivider:Show()
+
+        for i = 1, numPet do
+            local buff = trackedPetBuffs[i]
+            local row  = petRows[i]
+            if not row then
+                row = MakePetRow(i)
+                petRows[i] = row
+            end
+            local rowY = -8 - (numVisible * 18) - 18 - (i * 18)
+            row:SetPoint("TOPLEFT",  frame, "TOPLEFT",  5, rowY)
+            row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, rowY)
+            row.label:SetText(buff.name)
+            row.label:SetTextColor(1, 0.7, 0)
+            row.status:SetText("---")
+            row.status:SetTextColor(1, 1, 1)
+            row.buff        = buff
+            row.petBuffIndex = i
+            row.missing     = false
+            row.remaining   = buff.duration
+            row.glow:SetTexture(1, 0.5, 0, 0)
+            row.glowAlpha   = 0
             row:Show()
         end
     end
@@ -762,12 +915,17 @@ weaponEnchantBtn:SetScript("OnClick", function()
 end)
 
 local addCustomBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
-addCustomBtn:SetWidth(160); addCustomBtn:SetHeight(22)
-addCustomBtn:SetPoint("TOP", configFrame, "TOP", 0, -70)
+addCustomBtn:SetWidth(135); addCustomBtn:SetHeight(22)
+addCustomBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -70)
 addCustomBtn:SetText("+ Add Custom Buff...")
 
+local addPetBuffBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
+addPetBuffBtn:SetWidth(130); addPetBuffBtn:SetHeight(22)
+addPetBuffBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 175, -70)
+addPetBuffBtn:SetText("+ Add Pet Buff...")
+
 -----------------------------
--- CUSTOM BUFF POPUP
+-- CUSTOM BUFF POPUP  (shared by both player and pet, mode flag set on open)
 -----------------------------
 local customPopup = CreateFrame("Frame", "MeggicCustomBuffPopup", UIParent)
 customPopup:SetWidth(260)
@@ -815,6 +973,7 @@ popupTypeLabel:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 15, -80)
 popupTypeLabel:SetText("Type:")
 
 local popupSelectedType = "spell"
+local popupIsPet        = false   -- true when opened via "Add Pet Buff"
 
 local popupSpellBtn = CreateFrame("Button", "MeggicPopupSpell", customPopup)
 popupSpellBtn:SetWidth(60); popupSpellBtn:SetHeight(20)
@@ -854,33 +1013,52 @@ popupAddBtn:SetScript("OnClick", function()
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r Please enter a name.")
         return
     end
-    local exists, existingName = IsAlreadyTracked(name)
-    if exists then
-        if existingName == name then
-            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MeggicBuffTracker:|r '" .. name .. "' is already being tracked.")
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MeggicBuffTracker:|r '" .. name .. "' is covered by '" .. existingName .. "' (alias).")
+    if popupIsPet then
+        if IsAlreadyTrackedPet(name) then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MeggicBuffTracker:|r '" .. name .. "' is already tracked as a pet buff.")
+            return
         end
-        return
+        table.insert(trackedPetBuffs, { name = name, duration = 60*60, actionType = popupSelectedType, action = name })
+        MeggicBuffTrackerDB.petBuffs = trackedPetBuffs
+        RefreshTrackerRows()
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Added pet buff " .. name)
+    else
+        local exists, existingName = IsAlreadyTracked(name)
+        if exists then
+            if existingName == name then
+                DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MeggicBuffTracker:|r '" .. name .. "' is already being tracked.")
+            else
+                DEFAULT_CHAT_FRAME:AddMessage("|cffffff00MeggicBuffTracker:|r '" .. name .. "' is covered by '" .. existingName .. "' (alias).")
+            end
+            return
+        end
+        table.insert(trackedBuffs, { name = name, duration = 60*60, actionType = popupSelectedType, action = name })
+        MeggicBuffTrackerDB.buffs = trackedBuffs
+        RefreshTrackerRows()
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Added " .. name)
     end
-    table.insert(trackedBuffs, { name = name, duration = 60*60, actionType = popupSelectedType, action = name })
-    MeggicBuffTrackerDB.buffs = trackedBuffs
-    RefreshTrackerRows()
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker:|r Added " .. name)
     popupNameInput:SetText("")
     PopupSelectType("spell")
     customPopup:Hide()
 end)
 
+local function OpenCustomPopup(isPet)
+    popupIsPet = isPet
+    popupTitle:SetText(isPet and "Add Pet Buff" or "Add Custom Buff")
+    popupNameInput:SetText("")
+    PopupSelectType("spell")
+    customPopup:SetPoint("CENTER", configFrame, "CENTER", 0, 0)
+    customPopup:Show()
+end
+
 addCustomBtn:SetScript("OnClick", function()
-    if customPopup:IsShown() then
-        customPopup:Hide()
-    else
-        popupNameInput:SetText("")
-        PopupSelectType("spell")
-        customPopup:SetPoint("CENTER", configFrame, "CENTER", 0, 0)
-        customPopup:Show()
-    end
+    if customPopup:IsShown() and not popupIsPet then customPopup:Hide()
+    else OpenCustomPopup(false) end
+end)
+
+addPetBuffBtn:SetScript("OnClick", function()
+    if customPopup:IsShown() and popupIsPet then customPopup:Hide()
+    else OpenCustomPopup(true) end
 end)
 
 -----------------------------
@@ -1126,6 +1304,8 @@ frame:SetScript("OnUpdate", function()
     if elapsed >= 1 then
         elapsed = 0
         local buffMap = BuildBuffTimeMap()
+
+        -- player buff rows
         for i = 1, table.getn(rows) do
             local row = rows[i]
             if row:IsShown() and row.buff then
@@ -1138,11 +1318,7 @@ frame:SetScript("OnUpdate", function()
                         remaining = (hasEnchant and enchantExpiry) and (enchantExpiry / 1000) or buff.duration
                     else
                         local t = GetBuffTimeLeft(buffMap, buff.name)
-                        if t == nil or t == 0 then
-                            remaining = nil
-                        else
-                            remaining = t
-                        end
+                        if t == nil or t == 0 then remaining = nil else remaining = t end
                     end
                     row.remaining = remaining or 0
                     if remaining == nil then
@@ -1176,7 +1352,49 @@ frame:SetScript("OnUpdate", function()
                 end
             end
         end
+
+        -- pet buff rows
+        for i = 1, table.getn(petRows) do
+            local row = petRows[i]
+            if row:IsShown() and row.buff then
+                local buff = row.buff
+                local found, remaining = GetPetBuffTimeLeft(buff.name)
+                if found then
+                    row.remaining = remaining or 0
+                    if remaining == nil then
+                        row.status:SetText("|cffaaaaaa--:--|r")
+                        row.status:SetTextColor(1, 1, 1)
+                    else
+                        if remaining < 0 then remaining = 0 end
+                        row.status:SetText(FormatTime(remaining))
+                        if remaining < 60 then
+                            row.status:SetTextColor(1, 0.3, 0.3)
+                        elseif remaining < 300 then
+                            row.status:SetTextColor(1, 1, 0)
+                        else
+                            row.status:SetTextColor(0, 1, 0)
+                        end
+                    end
+                    row.label:SetTextColor(1, 0.7, 0)
+                    row.missing = false
+                    row.glow:SetTexture(1, 0.5, 0, 0)
+                    row.glowAlpha = 0
+                else
+                    row.remaining = 0
+                    row.status:SetText("MISSING")
+                    row.status:SetTextColor(1, 0.4, 0)
+                    row.label:SetTextColor(1, 0.4, 0)
+                    row.missing = true
+                    if MeggicBuffTrackerDB.solidMissingBar then
+                        row.glow:SetTexture(1, 0.5, 0, 0.35)
+                        row.glowAlpha = 0.35
+                    end
+                end
+            end
+        end
     end
+
+    -- glow animation — player rows
     for i = 1, table.getn(rows) do
         local row = rows[i]
         if row:IsShown() and row.missing then
@@ -1184,14 +1402,23 @@ frame:SetScript("OnUpdate", function()
                 row.glow:SetTexture(1, 0, 0, 0.35)
             else
                 row.glowAlpha = row.glowAlpha + (row.glowDir * arg1 * 2)
-                if row.glowAlpha >= 0.4 then
-                    row.glowDir  = -1
-                    row.glowAlpha = 0.4
-                elseif row.glowAlpha <= 0 then
-                    row.glowDir  = 1
-                    row.glowAlpha = 0
-                end
+                if row.glowAlpha >= 0.4 then row.glowDir = -1; row.glowAlpha = 0.4
+                elseif row.glowAlpha <= 0 then row.glowDir = 1; row.glowAlpha = 0 end
                 row.glow:SetTexture(1, 0, 0, row.glowAlpha)
+            end
+        end
+    end
+    -- glow animation — pet rows (orange tint)
+    for i = 1, table.getn(petRows) do
+        local row = petRows[i]
+        if row:IsShown() and row.missing then
+            if MeggicBuffTrackerDB.solidMissingBar then
+                row.glow:SetTexture(1, 0.5, 0, 0.35)
+            else
+                row.glowAlpha = row.glowAlpha + (row.glowDir * arg1 * 2)
+                if row.glowAlpha >= 0.4 then row.glowDir = -1; row.glowAlpha = 0.4
+                elseif row.glowAlpha <= 0 then row.glowDir = 1; row.glowAlpha = 0 end
+                row.glow:SetTexture(1, 0.5, 0, row.glowAlpha)
             end
         end
     end
@@ -1210,17 +1437,20 @@ local wasInRaid = false
 
 eventFrame:SetScript("OnEvent", function()
     if event == "VARIABLES_LOADED" then
-        MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false }
+        MeggicBuffTrackerDB = MeggicBuffTrackerDB or { buffs = {}, petBuffs = {}, x = 0, y = 0, width = 250, showInRaidOnly = false, solidMissingBar = false }
         if MeggicBuffTrackerDB.showInRaidOnly == nil then MeggicBuffTrackerDB.showInRaidOnly = false end
         if MeggicBuffTrackerDB.solidMissingBar == nil then MeggicBuffTrackerDB.solidMissingBar = false end
         if MeggicBuffTrackerDB.isCollapsed     == nil then MeggicBuffTrackerDB.isCollapsed = false end
-        if MeggicBuffTrackerDB.width          == nil then MeggicBuffTrackerDB.width = 250 end
-        if MeggicBuffTrackerDB.collapseRows   == nil then MeggicBuffTrackerDB.collapseRows = 5 end
+        if MeggicBuffTrackerDB.width           == nil then MeggicBuffTrackerDB.width = 250 end
+        if MeggicBuffTrackerDB.collapseRows    == nil then MeggicBuffTrackerDB.collapseRows = 5 end
+        if MeggicBuffTrackerDB.petBuffs        == nil then MeggicBuffTrackerDB.petBuffs = {} end
         isCollapsed = MeggicBuffTrackerDB.isCollapsed
         COLLAPSE_ROWS = MeggicBuffTrackerDB.collapseRows
         collapseRowsInput:SetText(tostring(COLLAPSE_ROWS))
-        trackedBuffs = MeggicBuffTrackerDB.buffs or {}
-        MeggicBuffTrackerDB.buffs = trackedBuffs
+        trackedBuffs    = MeggicBuffTrackerDB.buffs    or {}
+        trackedPetBuffs = MeggicBuffTrackerDB.petBuffs or {}
+        MeggicBuffTrackerDB.buffs    = trackedBuffs
+        MeggicBuffTrackerDB.petBuffs = trackedPetBuffs
         if MeggicBuffTrackerDB.x and MeggicBuffTrackerDB.y then
             frame:ClearAllPoints()
             frame:SetPoint("CENTER", UIParent, "CENTER", MeggicBuffTrackerDB.x, MeggicBuffTrackerDB.y)
@@ -1233,11 +1463,12 @@ eventFrame:SetScript("OnEvent", function()
         else
             frame:Show()
         end
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker|r loaded " .. table.getn(trackedBuffs) .. " saved buffs.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00MeggicBuffTracker|r loaded " .. table.getn(trackedBuffs) .. " buff(s), " .. table.getn(trackedPetBuffs) .. " pet buff(s).")
 
     elseif event == "PLAYER_LOGOUT" then
-        MeggicBuffTrackerDB.buffs = trackedBuffs
-        MeggicBuffTrackerDB.width = frame:GetWidth()
+        MeggicBuffTrackerDB.buffs       = trackedBuffs
+        MeggicBuffTrackerDB.petBuffs    = trackedPetBuffs
+        MeggicBuffTrackerDB.width       = frame:GetWidth()
         MeggicBuffTrackerDB.isCollapsed = isCollapsed
 
     elseif event == "PLAYER_ENTERING_WORLD" then
@@ -1276,7 +1507,6 @@ SlashCmdList["MEGGICBUFFTRACKER"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("Resize: drag the right edge of the tracker.")
         DEFAULT_CHAT_FRAME:AddMessage("Buff names must match spell/item names exactly.")
         DEFAULT_CHAT_FRAME:AddMessage("Shift+Click a row to remove it. Drag to reorder.")
-        DEFAULT_CHAT_FRAME:AddMessage("Right+Click a row to recast it if missing or <5min remaining.")
         DEFAULT_CHAT_FRAME:AddMessage("[-]/[+] button collapses/expands the list to " .. COLLAPSE_ROWS .. " rows.")
     elseif msg == "config" then
         if configFrame:IsShown() then configFrame:Hide() else configFrame:Show() end
