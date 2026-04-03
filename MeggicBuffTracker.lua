@@ -160,6 +160,10 @@ local function IsBuffActive(buff)
     return false
 end
 
+-- Shared tooltip used for buff name/timer scanning (must be defined before GetPetBuffTimeLeft)
+local scanTip = CreateFrame("GameTooltip", "MeggicScanTooltip", UIParent, "GameTooltipTemplate")
+scanTip:SetOwner(UIParent, "ANCHOR_NONE")
+
 -- Check whether a named buff is active on the pet, and return time remaining
 local function GetPetBuffTimeLeft(buffName)
     if not UnitExists("pet") then return false, nil end
@@ -214,9 +218,6 @@ end
 -----------------------------
 -- ACCURATE TIMER
 -----------------------------
-local scanTip = CreateFrame("GameTooltip", "MeggicScanTooltip", UIParent, "GameTooltipTemplate")
-scanTip:SetOwner(UIParent, "ANCHOR_NONE")
-
 local function BuildBuffTimeMap()
     local iconToTime = {}
     for i = 0, 39 do
@@ -560,7 +561,7 @@ local dragIndex = nil
 
 -- Pet section: divider frame + pet rows
 local petDivider = CreateFrame("Frame", nil, frame)
-petDivider:SetHeight(45)
+petDivider:SetHeight(18)
 local petDividerText = petDivider:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 petDividerText:SetAllPoints(petDivider)
 petDividerText:SetJustifyH("CENTER")
@@ -915,7 +916,7 @@ weaponEnchantBtn:SetScript("OnClick", function()
 end)
 
 local addCustomBtn = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
-addCustomBtn:SetWidth(135); addCustomBtn:SetHeight(22)
+addCustomBtn:SetWidth(130); addCustomBtn:SetHeight(22)
 addCustomBtn:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 15, -70)
 addCustomBtn:SetText("+ Add Custom Buff...")
 
