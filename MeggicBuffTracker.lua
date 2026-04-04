@@ -630,7 +630,7 @@ local function MakePetRow(i)
                 DEFAULT_CHAT_FRAME:AddMessage("|cffff0000MeggicBuffTracker:|r No pet found.")
                 return
             end
-            if this.missing or (this.remaining and this.remaining < 120) then
+            if this.missing or (this.remaining and this.remaining < 300) then
                 TargetUnit("pet")
                 if b.actionType == "spell" and b.action ~= "" then
                     CastSpellByName(b.action)
@@ -741,7 +741,7 @@ RefreshTrackerRows = function()
                     if chatAction then
                         if chatAction.say   then SendChatMessage(chatAction.say,   "SAY")   end
                         if chatAction.party then SendChatMessage(chatAction.party, "PARTY") end
-                    elseif this.missing or (this.remaining and this.remaining < 120) then
+                    elseif this.missing or (this.remaining and this.remaining < 300) then
                         if b.actionType == "spell" and b.action ~= "" then
                             CastSpellByName(b.action)
                         elseif b.actionType == "item" and b.action ~= "" then
@@ -1330,7 +1330,7 @@ frame:SetScript("OnUpdate", function()
                         row.status:SetText(FormatTime(remaining))
                         if remaining < 60 then
                             row.status:SetTextColor(1, 0.3, 0.3)
-                        elseif remaining < 300 then
+                        elseif remaining < 120 then
                             row.status:SetTextColor(1, 1, 0)
                         else
                             row.status:SetTextColor(0, 1, 0)
