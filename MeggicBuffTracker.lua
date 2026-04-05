@@ -1330,7 +1330,7 @@ frame:SetScript("OnUpdate", function()
                         row.status:SetText(FormatTime(remaining))
                         if remaining < 60 then
                             row.status:SetTextColor(1, 0.3, 0.3)
-                        elseif remaining < 120 then
+                        elseif remaining < 300 then
                             row.status:SetTextColor(1, 1, 0)
                         else
                             row.status:SetTextColor(0, 1, 0)
