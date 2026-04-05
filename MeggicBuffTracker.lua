@@ -133,7 +133,7 @@ local iconAliases = {
 -- Each entry: { say = "message", party = "message" }
 -- Either key can be omitted to skip that channel.
 local buffChatActions = {
-    ["Windfury Totem Effect"] = { say = "WF Totem plz", party = "WF Totem plz" },
+    ["Windfury Totem Effect"] = { party = "WF Totem plz" },
 }
 
 -----------------------------
