@@ -561,7 +561,7 @@ local dragIndex = nil
 
 -- Pet section: divider frame + pet rows
 local petDivider = CreateFrame("Frame", nil, frame)
-petDivider:SetHeight(18)
+petDivider:SetHeight(40)
 local petDividerText = petDivider:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 petDividerText:SetAllPoints(petDivider)
 petDividerText:SetJustifyH("CENTER")
