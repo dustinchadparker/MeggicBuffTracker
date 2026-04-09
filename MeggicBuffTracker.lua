@@ -92,6 +92,8 @@ local buffAliases = {
     ["Distilled Wisdom"]              = "Flask of Distilled Wisdom",
     ["Flask of Distilled Wisdom"]     = "Distilled Wisdom",
     ["Ground Scorpok Assay"]          = "Strike of the Scorpok",
+    ["Scroll of Agility IV"] = "Agility"
+    ["Scroll of Agility III"] = "Agility"
 }
 
 local buffReagents = {
